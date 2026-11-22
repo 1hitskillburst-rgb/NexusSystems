@@ -9,10 +9,23 @@ mod ui;
 use app::NexusApp;
 use telemetry::TelemetryCollector;
 
+#[cfg(windows)]
+extern "system" {
+    fn AttachConsole(dw_process_id: u32) -> i32;
+}
+
+#[cfg(windows)]
+const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+
 fn main() -> Result<(), eframe::Error> {
     // If CLI argument --test-telemetry is passed, run telemetry test in console
     let args: Vec<String> = std::env::args().collect();
     if args.contains(&"--test-telemetry".to_string()) {
+        #[cfg(windows)]
+        unsafe {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+
         println!("=== NEXUS SYSTEMS TELEMETRY TEST ===");
         let mut collector = TelemetryCollector::new();
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -53,3 +66,25 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| Ok(Box::new(NexusApp::new(cc)))),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn test_attach_parent_process_constant() {
+        assert_eq!(ATTACH_PARENT_PROCESS, 0xFFFF_FFFF);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_attach_console_invocation() {
+        // Calling AttachConsole when already attached or without parent console returns non-zero (success)
+        // or zero (failure), but does not panic or violate memory safety.
+        unsafe {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
