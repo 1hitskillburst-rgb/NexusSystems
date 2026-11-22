@@ -131,6 +131,11 @@ impl eframe::App for NexusApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(palette.background).inner_margin(16.0))
             .show(ctx, |ui| {
+                // Skip rendering if window is minimized or collapsed during rapid drag
+                if ui.available_width() < 50.0 || ui.available_height() < 50.0 {
+                    return;
+                }
+
                 let prev_theme = self.config.theme;
 
                 // Header

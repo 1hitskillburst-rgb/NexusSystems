@@ -43,11 +43,7 @@ fn main() -> Result<(), eframe::Error> {
             .with_resizable(true)
             .with_drag_and_drop(false),
         vsync: true,
-        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-            present_mode: eframe::wgpu::PresentMode::AutoVsync,
-            desired_maximum_frame_latency: Some(2),
-            ..Default::default()
-        },
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 

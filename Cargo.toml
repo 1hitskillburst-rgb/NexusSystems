@@ -6,7 +6,7 @@ authors = ["1hitskillburst-rgb <1hitskillburst@gmail.com>"]
 description = "NEXUS / SYSTEMS --- PC Control Center (Native Windows Desktop Telemetry Application)"
 
 [dependencies]
-eframe = { version = "0.29", default-features = false, features = ["default_fonts", "wgpu"] }
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
 egui = "0.29"
 sysinfo = "0.31"
 serde = { version = "1.0", features = ["derive"] }
