@@ -83,6 +83,14 @@ fn clean_adapter_name(name: &str) -> String {
     truncate_str(&clean, 12)
 }
 
+pub fn format_cpu_temp(temp: Option<f32>) -> String {
+    temp.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "--°C".to_string())
+}
+
+pub fn format_cpu_power(power: Option<f32>) -> String {
+    power.map(|p| format!("{:.0} W", p)).unwrap_or_else(|| "-- W".to_string())
+}
+
 pub fn render_cpu_card(
     ui: &mut Ui,
     cpu: &CpuSnapshot,
@@ -139,7 +147,7 @@ pub fn render_cpu_card(
         ui.add_space(top_spacing);
 
         // Sub stats
-        let temp_str = cpu.package_temp_c.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "54°C".to_string());
+        let temp_str = format_cpu_temp(cpu.package_temp_c);
         stat_row(ui, "Package temp", &temp_str, palette);
         ui.add_space(stat_spacing);
 
@@ -147,7 +155,7 @@ pub fn render_cpu_card(
         stat_row(ui, "Clock speed", &clock_str, palette);
         ui.add_space(stat_spacing);
 
-        let power_str = cpu.package_power_w.map(|p| format!("{:.0} W", p)).unwrap_or_else(|| "65 W".to_string());
+        let power_str = format_cpu_power(cpu.package_power_w);
         stat_row(ui, "Package power", &power_str, palette);
     });
 }
@@ -221,6 +229,14 @@ pub fn render_gpu_card(
     });
 }
 
+pub fn format_memory_speed(speed: &str) -> &str {
+    if speed.is_empty() || speed == "Unknown MT/s" {
+        "-- MT/s"
+    } else {
+        speed
+    }
+}
+
 pub fn render_memory_card(
     ui: &mut Ui,
     mem: &MemorySnapshot,
@@ -229,6 +245,8 @@ pub fn render_memory_card(
     height: f32,
 ) {
     card_container(ui, palette, width, height, |ui| {
+        let speed_str = format_memory_speed(&mem.memory_speed);
+
         // Card Header
         ui.horizontal(|ui| {
             ui.set_max_width(ui.available_width());
@@ -240,7 +258,7 @@ pub fn render_memory_card(
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    egui::RichText::new(&mem.memory_speed)
+                    egui::RichText::new(speed_str)
                         .font(egui::FontId::monospace(10.5))
                         .color(palette.text_muted),
                 );
@@ -281,7 +299,7 @@ pub fn render_memory_card(
         stat_row(ui, "In use", &in_use_str, palette);
         ui.add_space(stat_spacing);
 
-        stat_row(ui, "Speed", &mem.memory_speed, palette);
+        stat_row(ui, "Speed", speed_str, palette);
         ui.add_space(stat_spacing);
 
         let committed_str = format!("{:.1} GB", mem.committed_gb);
@@ -443,7 +461,7 @@ pub fn render_network_card(
         stat_row(ui, "Upload", &ul_str, palette);
         ui.add_space(stat_spacing);
 
-        let ping_str = network.ping_ms.map(|p| format!("{} ms", p)).unwrap_or_else(|| "-- ms".to_string());
+        let ping_str = format_network_ping(network.ping_ms);
         stat_row(ui, "Ping", &ping_str, palette);
         ui.add_space(stat_spacing);
 
@@ -451,11 +469,29 @@ pub fn render_network_card(
     });
 }
 
+pub fn format_network_ping(ping: Option<u32>) -> String {
+    ping.map(|p| format!("{} ms", p)).unwrap_or_else(|| "-- ms".to_string())
+}
+
 fn format_rpm(rpm: u32) -> String {
     if rpm >= 1000 {
         format!("{},{:03} RPM", rpm / 1000, rpm % 1000)
     } else {
         format!("{} RPM", rpm)
+    }
+}
+
+pub fn compute_fan_metrics(rpm: Option<u32>, max_rpm: f32) -> (String, f32) {
+    match rpm {
+        Some(rpm) => {
+            let pct = if max_rpm > 0.0 {
+                ((rpm as f32 / max_rpm) * 100.0).clamp(0.0, 100.0)
+            } else {
+                0.0
+            };
+            (format_rpm(rpm), pct)
+        }
+        None => ("-- RPM".to_string(), 0.0),
     }
 }
 
@@ -481,9 +517,8 @@ pub fn render_cooling_card(
         ui.add_space(top_spacing);
 
         // CPU Fan
-        let cpu_rpm = cooling.cpu_fan_rpm.unwrap_or(1240);
-        let cpu_pct = (cpu_rpm as f32 / 2400.0) * 100.0;
-        stat_row(ui, "CPU Fan", &format_rpm(cpu_rpm), palette);
+        let (cpu_rpm_str, cpu_pct) = compute_fan_metrics(cooling.cpu_fan_rpm, 2400.0);
+        stat_row(ui, "CPU Fan", &cpu_rpm_str, palette);
         ui.add_space(2.0);
         let (bar_rect1, _) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), egui::Sense::hover());
         draw_segmented_bar(ui.painter(), bar_rect1, cpu_pct, palette);
@@ -491,9 +526,8 @@ pub fn render_cooling_card(
         ui.add_space(fan_spacing);
 
         // GPU Fan
-        let gpu_rpm = cooling.gpu_fan_rpm.unwrap_or(1580);
-        let gpu_pct = (gpu_rpm as f32 / 2400.0) * 100.0;
-        stat_row(ui, "GPU Fan", &format_rpm(gpu_rpm), palette);
+        let (gpu_rpm_str, gpu_pct) = compute_fan_metrics(cooling.gpu_fan_rpm, 2500.0);
+        stat_row(ui, "GPU Fan", &gpu_rpm_str, palette);
         ui.add_space(2.0);
         let (bar_rect2, _) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), egui::Sense::hover());
         draw_segmented_bar(ui.painter(), bar_rect2, gpu_pct, palette);
@@ -501,9 +535,8 @@ pub fn render_cooling_card(
         ui.add_space(fan_spacing);
 
         // Case Fans
-        let case_rpm = cooling.case_fan_rpm.unwrap_or(920);
-        let case_pct = (case_rpm as f32 / 2000.0) * 100.0;
-        stat_row(ui, "Case Fans", &format_rpm(case_rpm), palette);
+        let (case_rpm_str, case_pct) = compute_fan_metrics(cooling.case_fan_rpm, 2000.0);
+        stat_row(ui, "Case Fans", &case_rpm_str, palette);
         ui.add_space(2.0);
         let (bar_rect3, _) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), egui::Sense::hover());
         draw_segmented_bar(ui.painter(), bar_rect3, case_pct, palette);
@@ -631,5 +664,78 @@ mod tests {
                 assert!(res.chars().count() <= limit.max(4));
             }
         }
+    }
+
+    #[test]
+    fn test_format_cpu_temp_fallback() {
+        assert_eq!(format_cpu_temp(None), "--°C");
+        assert_eq!(format_cpu_temp(Some(54.0)), "54°C");
+        assert_eq!(format_cpu_temp(Some(72.6)), "73°C");
+    }
+
+    #[test]
+    fn test_format_cpu_power_fallback() {
+        assert_eq!(format_cpu_power(None), "-- W");
+        assert_eq!(format_cpu_power(Some(65.0)), "65 W");
+        assert_eq!(format_cpu_power(Some(125.4)), "125 W");
+    }
+
+    #[test]
+    fn test_format_memory_speed_fallback() {
+        assert_eq!(format_memory_speed(""), "-- MT/s");
+        assert_eq!(format_memory_speed("Unknown MT/s"), "-- MT/s");
+        assert_eq!(format_memory_speed("-- MT/s"), "-- MT/s");
+        assert_eq!(format_memory_speed("6,000 MT/s"), "6,000 MT/s");
+        assert_eq!(format_memory_speed("5200 MT/s"), "5200 MT/s");
+    }
+
+    #[test]
+    fn test_format_network_ping_fallback() {
+        assert_eq!(format_network_ping(None), "-- ms");
+        assert_eq!(format_network_ping(Some(15)), "15 ms");
+        assert_eq!(format_network_ping(Some(1)), "1 ms");
+    }
+
+    #[test]
+    fn test_compute_fan_metrics_fallback_and_overflow() {
+        // None fallbacks produce "-- RPM" and 0.0% duty
+        let (cpu_str, cpu_pct) = compute_fan_metrics(None, 2400.0);
+        assert_eq!(cpu_str, "-- RPM");
+        assert_eq!(cpu_pct, 0.0);
+
+        let (gpu_str, gpu_pct) = compute_fan_metrics(None, 2500.0);
+        assert_eq!(gpu_str, "-- RPM");
+        assert_eq!(gpu_pct, 0.0);
+
+        let (case_str, case_pct) = compute_fan_metrics(None, 2000.0);
+        assert_eq!(case_str, "-- RPM");
+        assert_eq!(case_pct, 0.0);
+
+        // Normal metrics
+        let (cpu_str, cpu_pct) = compute_fan_metrics(Some(1200), 2400.0);
+        assert_eq!(cpu_str, "1,200 RPM");
+        assert_eq!(cpu_pct, 50.0);
+
+        let (gpu_str, gpu_pct) = compute_fan_metrics(Some(2500), 2500.0);
+        assert_eq!(gpu_str, "2,500 RPM");
+        assert_eq!(gpu_pct, 100.0);
+
+        // Extreme RPM inputs must clamp to 100.0% (no gauge overflow)
+        let (cpu_str_extreme, cpu_pct_extreme) = compute_fan_metrics(Some(3600), 2400.0);
+        assert_eq!(cpu_str_extreme, "3,600 RPM");
+        assert_eq!(cpu_pct_extreme, 100.0);
+
+        let (gpu_str_extreme, gpu_pct_extreme) = compute_fan_metrics(Some(10000), 2500.0);
+        assert_eq!(gpu_str_extreme, "10,000 RPM");
+        assert_eq!(gpu_pct_extreme, 100.0);
+
+        let (case_str_extreme, case_pct_extreme) = compute_fan_metrics(Some(5000), 2000.0);
+        assert_eq!(case_str_extreme, "5,000 RPM");
+        assert_eq!(case_pct_extreme, 100.0);
+
+        // Zero RPM
+        let (zero_str, zero_pct) = compute_fan_metrics(Some(0), 2400.0);
+        assert_eq!(zero_str, "0 RPM");
+        assert_eq!(zero_pct, 0.0);
     }
 }

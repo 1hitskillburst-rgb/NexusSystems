@@ -156,7 +156,7 @@ impl TelemetryCollector {
             used_gb,
             total_gb,
             utilization_pct: mem_util_pct,
-            memory_speed: "6,000 MT/s".to_string(), // Typical DDR5 or system default
+            memory_speed: "-- MT/s".to_string(),
             committed_gb,
             available_gb: avail_gb,
         };
@@ -242,7 +242,7 @@ impl TelemetryCollector {
         let network = NetworkSnapshot {
             download_mbps: download_mbps.max(0.0),
             upload_mbps: upload_mbps.max(0.0),
-            ping_ms: Some(15), // active ICMP response or gateway latency
+            ping_ms: None,
             adapter_name: if primary_adapter.contains("Wi-Fi") {
                 "Wi-Fi 6E".to_string()
             } else {
@@ -285,9 +285,9 @@ impl TelemetryCollector {
         // --- Cooling ---
         let gpu_fan = gpu.fan_speed_pct.map(|pct| (pct * 25.0) as u32);
         let cooling = CoolingSnapshot {
-            cpu_fan_rpm: Some(1240),
-            gpu_fan_rpm: gpu_fan.or(Some(1580)),
-            case_fan_rpm: Some(920),
+            cpu_fan_rpm: None,
+            gpu_fan_rpm: gpu_fan,
+            case_fan_rpm: None,
         };
 
         SystemSnapshot {
@@ -300,6 +300,39 @@ impl TelemetryCollector {
             processes,
             network,
             cooling,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collector_eliminates_mock_telemetry() {
+        let mut collector = TelemetryCollector::new();
+        let snap = collector.sample();
+
+        // Memory speed must not be fabricated "6,000 MT/s"
+        assert_eq!(snap.memory.memory_speed, "-- MT/s");
+
+        // Ping must be None (no fabricated Some(15))
+        assert_eq!(snap.network.ping_ms, None);
+
+        // CPU and case fan RPMs must be None (no fabricated Some(1240) or Some(920))
+        assert_eq!(snap.cooling.cpu_fan_rpm, None);
+        assert_eq!(snap.cooling.case_fan_rpm, None);
+
+        // CPU package temp and power must be None (no fake values)
+        assert_eq!(snap.cpu.package_temp_c, None);
+        assert_eq!(snap.cpu.package_power_w, None);
+
+        // GPU fan must not have fake fallback Some(1580)
+        if snap.gpu.fan_speed_pct.is_none() {
+            assert_eq!(snap.cooling.gpu_fan_rpm, None);
+        } else {
+            let expected_rpm = snap.gpu.fan_speed_pct.map(|pct| (pct * 25.0) as u32);
+            assert_eq!(snap.cooling.gpu_fan_rpm, expected_rpm);
         }
     }
 }
