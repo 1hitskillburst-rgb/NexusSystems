@@ -3,6 +3,85 @@ use crate::telemetry::models::*;
 use crate::theme::ThemePalette;
 use crate::ui::widgets::{card_container, draw_segmented_bar, stat_row};
 
+fn clean_cpu_name(name: &str) -> String {
+    let mut cleaned = name.to_string();
+    // Replace common redundant prefixes
+    for prefix in &["Intel(R) Core(TM) ", "Intel(R) ", "AMD Ryzen(TM) ", "AMD Ryzen ", "Core(TM) "] {
+        if let Some(pos) = cleaned.find(prefix) {
+            let remainder = &cleaned[pos + prefix.len()..];
+            if prefix.contains("Core") {
+                cleaned = format!("Core {}", remainder);
+            } else if prefix.contains("Ryzen") {
+                cleaned = format!("Ryzen {}", remainder);
+            } else {
+                cleaned = remainder.to_string();
+            }
+            break;
+        }
+    }
+    // Remove "11th Gen ", "12th Gen ", "13th Gen ", "14th Gen " etc.
+    if let Some(gen_pos) = cleaned.find("Gen ") {
+        let after_gen = &cleaned[gen_pos + 4..];
+        return clean_cpu_name(after_gen);
+    }
+    let cleaned = cleaned.replace("(R)", "").replace("(TM)", "");
+    let trimmed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if trimmed.is_empty() {
+        "CPU".to_string()
+    } else if trimmed.len() > 16 {
+        format!("{}...", &trimmed[..13])
+    } else {
+        trimmed
+    }
+}
+
+fn clean_gpu_name(name: &str) -> String {
+    let mut cleaned = name.trim().to_string();
+    if cleaned.starts_with("NVIDIA ") {
+        cleaned = cleaned["NVIDIA ".len()..].to_string();
+    } else if cleaned.starts_with("AMD ") {
+        cleaned = cleaned["AMD ".len()..].to_string();
+    }
+    let cleaned = cleaned.replace("(R)", "").replace("(TM)", "");
+    let trimmed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if trimmed.len() > 18 {
+        format!("{}...", &trimmed[..15])
+    } else {
+        trimmed
+    }
+}
+
+fn clean_adapter_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let lower = trimmed.to_lowercase();
+    let clean = if lower.contains("wi-fi") || lower.contains("wifi") || lower.contains("wireless") {
+        if trimmed.contains("6E") || trimmed.contains("6e") {
+            "Wi-Fi 6E".to_string()
+        } else if trimmed.contains('7') {
+            "Wi-Fi 7".to_string()
+        } else if trimmed.contains('6') {
+            "Wi-Fi 6".to_string()
+        } else {
+            "Wi-Fi".to_string()
+        }
+    } else if lower.contains("ethernet") {
+        "Ethernet".to_string()
+    } else if lower.contains("loopback") {
+        "Loopback".to_string()
+    } else if lower.contains("bluetooth") {
+        "Bluetooth".to_string()
+    } else if trimmed.len() > 12 {
+        format!("{}...", &trimmed[..9])
+    } else {
+        trimmed.to_string()
+    };
+    if clean.len() > 12 {
+        format!("{}...", &clean[..9])
+    } else {
+        clean
+    }
+}
+
 pub fn render_cpu_card(
     ui: &mut Ui,
     cpu: &CpuSnapshot,
@@ -11,23 +90,19 @@ pub fn render_cpu_card(
     height: f32,
 ) {
     card_container(ui, palette, width, height, |ui| {
-        // Card Header
+        // Card Header: "CPU" on left, clean name on right - NEVER overlaps
         ui.horizontal(|ui| {
+            ui.set_max_width(ui.available_width());
             ui.label(
-                egui::RichText::new("CPU / Processor")
+                egui::RichText::new("CPU")
                     .font(egui::FontId::monospace(11.0))
                     .strong()
                     .color(palette.text_main),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let clean_model = if width < 220.0 && cpu.model_name.len() > 14 {
-                    format!("{}...", &cpu.model_name[..11])
-                } else {
-                    cpu.model_name.clone()
-                };
                 ui.label(
-                    egui::RichText::new(clean_model)
-                        .font(egui::FontId::monospace(11.0))
+                    egui::RichText::new(clean_cpu_name(&cpu.model_name))
+                        .font(egui::FontId::monospace(10.5))
                         .color(palette.text_muted),
                 );
             });
@@ -84,23 +159,19 @@ pub fn render_gpu_card(
     height: f32,
 ) {
     card_container(ui, palette, width, height, |ui| {
-        // Card Header
+        // Card Header: "GPU" on left, clean name on right
         ui.horizontal(|ui| {
+            ui.set_max_width(ui.available_width());
             ui.label(
-                egui::RichText::new("GPU / Graphics")
+                egui::RichText::new("GPU")
                     .font(egui::FontId::monospace(11.0))
                     .strong()
                     .color(palette.text_main),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let clean_model = if width < 220.0 && gpu.model_name.len() > 14 {
-                    format!("{}...", &gpu.model_name[..11])
-                } else {
-                    gpu.model_name.clone()
-                };
                 ui.label(
-                    egui::RichText::new(clean_model)
-                        .font(egui::FontId::monospace(11.0))
+                    egui::RichText::new(clean_gpu_name(&gpu.model_name))
+                        .font(egui::FontId::monospace(10.5))
                         .color(palette.text_muted),
                 );
             });
@@ -159,8 +230,9 @@ pub fn render_memory_card(
     card_container(ui, palette, width, height, |ui| {
         // Card Header
         ui.horizontal(|ui| {
+            ui.set_max_width(ui.available_width());
             ui.label(
-                egui::RichText::new("Memory / RAM")
+                egui::RichText::new("RAM")
                     .font(egui::FontId::monospace(11.0))
                     .strong()
                     .color(palette.text_main),
@@ -168,7 +240,7 @@ pub fn render_memory_card(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(&mem.memory_speed)
-                        .font(egui::FontId::monospace(11.0))
+                        .font(egui::FontId::monospace(10.5))
                         .color(palette.text_muted),
                 );
             });
@@ -208,7 +280,7 @@ pub fn render_memory_card(
         stat_row(ui, "In use", &in_use_str, palette);
         ui.add_space(stat_spacing);
 
-        stat_row(ui, "Memory speed", &mem.memory_speed, palette);
+        stat_row(ui, "Speed", &mem.memory_speed, palette);
         ui.add_space(stat_spacing);
 
         let committed_str = format!("{:.1} GB", mem.committed_gb);
@@ -240,9 +312,16 @@ pub fn render_storage_card(
         ui.add_space((drive_gap * 0.5).clamp(2.0, 6.0));
 
         for drive in drives.iter().take(visible_count) {
+            let clean_drive_name = if drive.name.len() > 14 {
+                format!("{}...", &drive.name[..11])
+            } else {
+                drive.name.clone()
+            };
+
             ui.horizontal(|ui| {
+                ui.set_max_width(ui.available_width());
                 ui.label(
-                    egui::RichText::new(&drive.name)
+                    egui::RichText::new(&clean_drive_name)
                         .font(egui::FontId::monospace(11.0))
                         .strong()
                         .color(palette.text_main),
@@ -269,7 +348,7 @@ pub fn render_storage_card(
             draw_segmented_bar(ui.painter(), bar_rect, drive.utilization_pct, palette);
 
             ui.add_space(2.0);
-            let used_line = format!("Used space: {:.0} GB / {:.0} GB", drive.used_gb, drive.total_gb);
+            let used_line = format!("Used: {:.0} / {:.0} GB", drive.used_gb, drive.total_gb);
             ui.label(
                 egui::RichText::new(used_line)
                     .font(egui::FontId::monospace(10.0))
@@ -303,10 +382,11 @@ pub fn render_processes_card(
 
         ui.add_space((proc_gap * 0.8).clamp(2.0, 6.0));
 
-        let max_name_len = ((width - 120.0) / 7.2).max(12.0) as usize;
+        let max_name_len = ((width - 120.0) / 7.2).max(11.0) as usize;
 
         for proc in processes.iter().take(count) {
             ui.horizontal(|ui| {
+                ui.set_max_width(ui.available_width());
                 let clean_name = if proc.name.len() > max_name_len {
                     let prefix_len = max_name_len.saturating_sub(3).max(3);
                     format!("{}...", &proc.name[..prefix_len])
@@ -323,15 +403,15 @@ pub fn render_processes_card(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(&proc.memory_str)
-                            .font(egui::FontId::monospace(11.0))
+                            .font(egui::FontId::monospace(10.5))
                             .color(palette.text_muted),
                     );
 
-                    ui.add_space(14.0);
+                    ui.add_space(10.0);
 
                     ui.label(
                         egui::RichText::new(format!("{:>4.1}%", proc.cpu_pct))
-                            .font(egui::FontId::monospace(11.0))
+                            .font(egui::FontId::monospace(10.5))
                             .color(palette.text_main),
                     );
                 });
@@ -375,14 +455,7 @@ pub fn render_network_card(
         stat_row(ui, "Ping", &ping_str, palette);
         ui.add_space(stat_spacing);
 
-        let max_adapter_len = ((width - 100.0) / 7.2).max(12.0) as usize;
-        let clean_adapter = if network.adapter_name.len() > max_adapter_len {
-            let prefix_len = max_adapter_len.saturating_sub(3).max(3);
-            format!("{}...", &network.adapter_name[..prefix_len])
-        } else {
-            network.adapter_name.clone()
-        };
-        stat_row(ui, "Adapter", &clean_adapter, palette);
+        stat_row(ui, "Adapter", &clean_adapter_name(&network.adapter_name), palette);
     });
 }
 

@@ -145,8 +145,9 @@ impl eframe::App for NexusApp {
                     apply_theme_to_ctx(ctx, self.config.theme);
                 }
 
-                let col_gap = 12.0;
+                let col_gap = 10.0;
                 let row_gap = 12.0;
+                let total_gaps = col_gap * 3.0;
                 ui.add_space(row_gap);
 
                 let available_w = ui.available_width();
@@ -155,11 +156,14 @@ impl eframe::App for NexusApp {
                 // Dynamic row height: allocate half the available height to row 1
                 let row1_h = ((available_h - row_gap) * 0.5).max(150.0);
 
-                // Top row: 3 metric cards + 1 wide chart
-                // Metric cards take ~18.5% width each, chart takes remaining space
-                let card_w = ((available_w - (col_gap * 3.0)) * 0.185).max(180.0);
+                // Row 1: card_w = ((available_w - total_gaps) * 0.20).clamp(130.0, 260.0);
+                // chart_w = available_w - (card_w * 3.0) - total_gaps;
+                let card_w = ((available_w - total_gaps) * 0.20).clamp(130.0, 260.0);
+                let chart_w = available_w - (card_w * 3.0) - total_gaps;
 
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+
                     render_cpu_card(ui, &self.snapshot.cpu, &palette, card_w, row1_h);
                     ui.add_space(col_gap);
 
@@ -169,18 +173,19 @@ impl eframe::App for NexusApp {
                     render_memory_card(ui, &self.snapshot.memory, &palette, card_w, row1_h);
                     ui.add_space(col_gap);
 
-                    let chart_w = ui.available_width().max(280.0);
                     draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
                 });
 
                 ui.add_space(row_gap);
 
-                // Bottom row: 4 cards (Storage, Top processes, Network, Cooling)
+                // Row 2: row2_col_w = (available_w - total_gaps) / 4.0;
                 // Dynamically take all remaining height to fully span to the bottom inner margin
                 let row2_h = ui.available_height().max(150.0);
-                let row2_col_w = ((available_w - (col_gap * 3.0)) / 4.0).max(180.0);
+                let row2_col_w = (available_w - total_gaps) / 4.0;
 
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+
                     render_storage_card(ui, &self.snapshot.drives, &palette, row2_col_w, row2_h);
                     ui.add_space(col_gap);
 
@@ -190,8 +195,7 @@ impl eframe::App for NexusApp {
                     render_network_card(ui, &self.snapshot.network, &palette, row2_col_w, row2_h);
                     ui.add_space(col_gap);
 
-                    let cooling_w = ui.available_width().max(180.0);
-                    render_cooling_card(ui, &self.snapshot.cooling, &palette, cooling_w, row2_h);
+                    render_cooling_card(ui, &self.snapshot.cooling, &palette, row2_col_w, row2_h);
                 });
             });
 

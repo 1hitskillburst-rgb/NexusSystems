@@ -60,9 +60,12 @@ pub fn card_container<R>(
         vec2(width, height),
         egui::Layout::top_down(egui::Align::LEFT),
         |ui| {
+            ui.set_clip_rect(ui.max_rect());
             frame.show(ui, |ui| {
                 ui.set_width(inner_w);
                 ui.set_height(inner_h);
+                ui.set_max_width(inner_w);
+                ui.set_clip_rect(ui.max_rect());
                 add_contents(ui)
             }).inner
         },
@@ -71,6 +74,7 @@ pub fn card_container<R>(
 
 pub fn stat_row(ui: &mut Ui, label: &str, value: &str, palette: &ThemePalette) {
     ui.horizontal(|ui| {
+        ui.set_max_width(ui.available_width());
         ui.label(
             egui::RichText::new(label)
                 .font(egui::FontId::monospace(11.0))
@@ -79,7 +83,7 @@ pub fn stat_row(ui: &mut Ui, label: &str, value: &str, palette: &ThemePalette) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new(value)
-                    .font(egui::FontId::monospace(11.5))
+                    .font(egui::FontId::monospace(11.0))
                     .strong()
                     .color(palette.text_main),
             );
