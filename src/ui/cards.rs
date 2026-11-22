@@ -3,6 +3,19 @@ use crate::telemetry::models::*;
 use crate::theme::ThemePalette;
 use crate::ui::widgets::{card_container, draw_segmented_bar, stat_row};
 
+/// Truncates a string to at most `max_chars` Unicode characters safely without splitting code points.
+/// If `s` exceeds `max_chars`, it retains the first `max_chars.saturating_sub(3).max(1)` characters
+/// and appends `"..."`.
+pub fn truncate_str(s: &str, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        let prefix_len = max_chars.saturating_sub(3).max(1);
+        let prefix: String = s.chars().take(prefix_len).collect();
+        format!("{}...", prefix)
+    } else {
+        s.to_string()
+    }
+}
+
 fn clean_cpu_name(name: &str) -> String {
     let mut cleaned = name.to_string();
     // Replace common redundant prefixes
@@ -28,10 +41,8 @@ fn clean_cpu_name(name: &str) -> String {
     let trimmed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     if trimmed.is_empty() {
         "CPU".to_string()
-    } else if trimmed.len() > 16 {
-        format!("{}...", &trimmed[..13])
     } else {
-        trimmed
+        truncate_str(&trimmed, 16)
     }
 }
 
@@ -44,11 +55,7 @@ fn clean_gpu_name(name: &str) -> String {
     }
     let cleaned = cleaned.replace("(R)", "").replace("(TM)", "");
     let trimmed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    if trimmed.len() > 18 {
-        format!("{}...", &trimmed[..15])
-    } else {
-        trimmed
-    }
+    truncate_str(&trimmed, 18)
 }
 
 fn clean_adapter_name(name: &str) -> String {
@@ -70,16 +77,10 @@ fn clean_adapter_name(name: &str) -> String {
         "Loopback".to_string()
     } else if lower.contains("bluetooth") {
         "Bluetooth".to_string()
-    } else if trimmed.len() > 12 {
-        format!("{}...", &trimmed[..9])
     } else {
-        trimmed.to_string()
+        truncate_str(trimmed, 12)
     };
-    if clean.len() > 12 {
-        format!("{}...", &clean[..9])
-    } else {
-        clean
-    }
+    truncate_str(&clean, 12)
 }
 
 pub fn render_cpu_card(
@@ -312,11 +313,7 @@ pub fn render_storage_card(
         ui.add_space((drive_gap * 0.5).clamp(2.0, 6.0));
 
         for drive in drives.iter().take(visible_count) {
-            let clean_drive_name = if drive.name.len() > 14 {
-                format!("{}...", &drive.name[..11])
-            } else {
-                drive.name.clone()
-            };
+            let clean_drive_name = truncate_str(&drive.name, 14);
 
             ui.horizontal(|ui| {
                 ui.set_max_width(ui.available_width());
@@ -387,12 +384,7 @@ pub fn render_processes_card(
         for proc in processes.iter().take(count) {
             ui.horizontal(|ui| {
                 ui.set_max_width(ui.available_width());
-                let clean_name = if proc.name.len() > max_name_len {
-                    let prefix_len = max_name_len.saturating_sub(3).max(3);
-                    format!("{}...", &proc.name[..prefix_len])
-                } else {
-                    proc.name.clone()
-                };
+                let clean_name = truncate_str(&proc.name, max_name_len);
 
                 ui.label(
                     egui::RichText::new(clean_name)
@@ -516,4 +508,128 @@ pub fn render_cooling_card(
         let (bar_rect3, _) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), egui::Sense::hover());
         draw_segmented_bar(ui.painter(), bar_rect3, case_pct, palette);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_str_ascii() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("1234567890", 10), "1234567890");
+        assert_eq!(truncate_str("12345678901", 10), "1234567...");
+        assert_eq!(truncate_str("abc", 3), "abc");
+        assert_eq!(truncate_str("abcd", 3), "a...");
+    }
+
+    #[test]
+    fn test_truncate_str_cjk() {
+        // CJK characters are typically 3 bytes each in UTF-8
+        let cjk_str = "微信微信微信微信微信.exe"; // 14 characters, 34 bytes (10 * 3 + 4)
+        assert_eq!(cjk_str.chars().count(), 14);
+        assert_eq!(cjk_str.len(), 34);
+
+        // Truncate at character limits without panicking
+        let truncated_10 = truncate_str(cjk_str, 10);
+        assert_eq!(truncated_10, "微信微信微信微...");
+        assert_eq!(truncated_10.chars().count(), 10);
+
+        let short_cjk = "微信.exe"; // 6 characters, 10 bytes
+        assert_eq!(truncate_str(short_cjk, 10), "微信.exe");
+        assert_eq!(truncate_str(short_cjk, 5), "微信...");
+    }
+
+    #[test]
+    fn test_truncate_str_cyrillic() {
+        // Cyrillic characters are 2 bytes each in UTF-8
+        let cyrillic_drive = "диск C: Системный";
+        // 17 chars, 31 bytes
+        let truncated = truncate_str(cyrillic_drive, 14);
+        assert_eq!(truncated, "диск C: Сис...");
+        assert_eq!(truncated.chars().count(), 14);
+    }
+
+    #[test]
+    fn test_truncate_str_symbols_and_emoji() {
+        // '™' is a 3-byte character (\u{2122})
+        let steam = "Steam™.exe"; // 10 chars, 12 bytes
+        let truncated_steam = truncate_str(steam, 8);
+        assert_eq!(truncated_steam, "Steam...");
+
+        // Emoji 4-byte characters
+        let emoji_str = "🚀Nexus🖥️Tool";
+        let truncated_emoji = truncate_str(emoji_str, 8);
+        assert!(truncated_emoji.ends_with("..."));
+    }
+
+    #[test]
+    fn test_clean_cpu_name_utf8() {
+        // ASCII standard
+        assert_eq!(clean_cpu_name("Intel(R) Core(TM) i7-13700F"), "Core i7-13700F");
+        // Empty
+        assert_eq!(clean_cpu_name(""), "CPU");
+        // Multi-byte Cyrillic processor name
+        let cyrillic_cpu = "Процессор Эльбрус-8СВ 16-ядерный";
+        let cleaned = clean_cpu_name(cyrillic_cpu);
+        assert_eq!(cleaned.chars().count(), 16);
+        assert!(cleaned.ends_with("..."));
+        // CJK processor name
+        let cjk_cpu = "龙芯 3A6000 处理器 极速旗舰版";
+        let cleaned_cjk = clean_cpu_name(cjk_cpu);
+        assert_eq!(cleaned_cjk.chars().count(), 16);
+        assert!(cleaned_cjk.ends_with("..."));
+    }
+
+    #[test]
+    fn test_clean_gpu_name_utf8() {
+        // ASCII standard
+        assert_eq!(clean_gpu_name("NVIDIA GeForce RTX 5070"), "GeForce RTX 5070");
+        // Multi-byte symbol ™
+        let symbol_gpu = "NVIDIA GeForce RTX™ 4090 Gaming Edition";
+        let cleaned_sym = clean_gpu_name(symbol_gpu);
+        assert_eq!(cleaned_sym.chars().count(), 18);
+        assert!(cleaned_sym.ends_with("..."));
+        // CJK GPU name
+        let cjk_gpu = "摩尔线程 MTT S80 国产游戏显卡旗舰版";
+        let cleaned_cjk = clean_gpu_name(cjk_gpu);
+        assert_eq!(cleaned_cjk.chars().count(), 18);
+        assert!(cleaned_cjk.ends_with("..."));
+    }
+
+    #[test]
+    fn test_clean_adapter_name_utf8() {
+        assert_eq!(clean_adapter_name("Intel(R) Wi-Fi 6E AX211"), "Wi-Fi 6E");
+        assert_eq!(clean_adapter_name("Realtek Gaming 2.5GbE Family Ethernet Controller"), "Ethernet");
+        // Multi-byte Cyrillic adapter
+        let cyrillic_net = "Сетевой адаптер беспроводной";
+        let cleaned = clean_adapter_name(cyrillic_net);
+        assert!(cleaned.chars().count() <= 12);
+        assert!(cleaned.ends_with("..."));
+        // CJK network adapter
+        let cjk_net = "无线局域网适配器";
+        let cleaned_cjk = clean_adapter_name(cjk_net);
+        assert!(cleaned_cjk.chars().count() <= 12);
+    }
+
+    #[test]
+    fn test_zero_panic_boundary_sweep() {
+        let test_strings = [
+            "微信.exe",
+            "Steam™.exe",
+            "диск C: Системный раздел",
+            "龙芯 3A6000 处理器",
+            "🚀 Nexus System Monitor",
+            "A",
+            "",
+        ];
+
+        for s in test_strings {
+            for limit in 0..30 {
+                let res = truncate_str(s, limit);
+                // Ensure result is valid UTF-8 and does not panic
+                assert!(res.chars().count() <= limit.max(4));
+            }
+        }
+    }
 }
