@@ -17,6 +17,11 @@ extern "system" {
 #[cfg(windows)]
 const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
 
+pub const INITIAL_INNER_WIDTH: f32 = 1220.0;
+pub const INITIAL_INNER_HEIGHT: f32 = 460.0;
+pub const MIN_INNER_WIDTH: f32 = 960.0;
+pub const MIN_INNER_HEIGHT: f32 = 440.0;
+
 fn main() -> Result<(), eframe::Error> {
     // If CLI argument --test-telemetry is passed, run telemetry test in console
     let args: Vec<String> = std::env::args().collect();
@@ -51,8 +56,8 @@ fn main() -> Result<(), eframe::Error> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("NEXUS / SYSTEMS --- PC Control Center")
-            .with_inner_size([1220.0, 420.0])
-            .with_min_inner_size([960.0, 380.0])
+            .with_inner_size([INITIAL_INNER_WIDTH, INITIAL_INNER_HEIGHT])
+            .with_min_inner_size([MIN_INNER_WIDTH, MIN_INNER_HEIGHT])
             .with_resizable(true)
             .with_drag_and_drop(false),
         vsync: true,
@@ -85,6 +90,14 @@ mod tests {
         unsafe {
             let _ = AttachConsole(ATTACH_PARENT_PROCESS);
         }
+    }
+
+    #[test]
+    fn test_minimum_window_size_configuration_bounds() {
+        assert!(MIN_INNER_WIDTH >= 960.0, "Minimum window width must be at least 960px");
+        assert!(MIN_INNER_HEIGHT >= 440.0, "Minimum window height must be at least 440px to fit layout budget");
+        assert!(INITIAL_INNER_WIDTH >= MIN_INNER_WIDTH);
+        assert!(INITIAL_INNER_HEIGHT >= MIN_INNER_HEIGHT);
     }
 }
 

@@ -3,6 +3,12 @@ use crate::telemetry::models::HistoryPoint;
 use crate::theme::ThemePalette;
 use crate::ui::widgets::card_container;
 
+/// Clamps chart painter width to at least 100.0 px to eliminate negative geometry.
+#[inline]
+pub fn clamp_chart_width(inner_w: f32) -> f32 {
+    inner_w.max(100.0)
+}
+
 pub fn draw_history_chart(
     ui: &mut Ui,
     history: &[HistoryPoint],
@@ -50,7 +56,8 @@ pub fn draw_history_chart(
 
         // Allocate the chart painter within inner_h - 48.0
         let chart_height = (inner_h - 48.0).max(30.0);
-        let (response, painter) = ui.allocate_painter(vec2(inner_w, chart_height), egui::Sense::hover());
+        let chart_w = clamp_chart_width(inner_w);
+        let (response, painter) = ui.allocate_painter(vec2(chart_w, chart_height), egui::Sense::hover());
         let rect = response.rect;
 
         // Visible grid lines using palette.bar_track
@@ -119,4 +126,21 @@ pub fn draw_history_chart(
             });
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chart_width_clamping_prevents_negative_geometry() {
+        assert_eq!(clamp_chart_width(-100.0), 100.0);
+        assert_eq!(clamp_chart_width(-0.1), 100.0);
+        assert_eq!(clamp_chart_width(0.0), 100.0);
+        assert_eq!(clamp_chart_width(42.0), 100.0);
+        assert_eq!(clamp_chart_width(99.9), 100.0);
+        assert_eq!(clamp_chart_width(100.0), 100.0);
+        assert_eq!(clamp_chart_width(100.1), 100.1);
+        assert_eq!(clamp_chart_width(350.0), 350.0);
+    }
 }

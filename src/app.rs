@@ -180,7 +180,6 @@ impl eframe::App for NexusApp {
 
                 let col_gap = 10.0;
                 let row_gap = 12.0;
-                let total_gaps = col_gap * 3.0;
                 ui.add_space(row_gap);
 
                 let available_w = ui.available_width();
@@ -188,22 +187,18 @@ impl eframe::App for NexusApp {
 
                 // Dynamic row height: allocate half the available height to row 1
                 let row1_h = ((available_h - row_gap) * 0.5).max(150.0);
-
-                // Row 1: card_w = ((available_w - total_gaps) * 0.20).clamp(130.0, 260.0);
-                // chart_w = available_w - (card_w * 3.0) - total_gaps;
-                let card_w = ((available_w - total_gaps) * 0.20).clamp(130.0, 260.0);
-                let chart_w = available_w - (card_w * 3.0) - total_gaps;
+                let (col_w, chart_w) = calculate_grid_columns(available_w, col_gap);
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
 
-                    render_cpu_card(ui, &self.snapshot.cpu, &palette, card_w, row1_h);
+                    render_cpu_card(ui, &self.snapshot.cpu, &palette, col_w, row1_h);
                     ui.add_space(col_gap);
 
-                    render_gpu_card(ui, &self.snapshot.gpu, &palette, card_w, row1_h);
+                    render_gpu_card(ui, &self.snapshot.gpu, &palette, col_w, row1_h);
                     ui.add_space(col_gap);
 
-                    render_memory_card(ui, &self.snapshot.memory, &palette, card_w, row1_h);
+                    render_memory_card(ui, &self.snapshot.memory, &palette, col_w, row1_h);
                     ui.add_space(col_gap);
 
                     draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
@@ -211,24 +206,22 @@ impl eframe::App for NexusApp {
 
                 ui.add_space(row_gap);
 
-                // Row 2: row2_col_w = (available_w - total_gaps) / 4.0;
-                // Dynamically take all remaining height to fully span to the bottom inner margin
                 let row2_h = ui.available_height().max(150.0);
-                let row2_col_w = (available_w - total_gaps) / 4.0;
+                let col4_w = chart_w;
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
 
-                    render_storage_card(ui, &self.snapshot.drives, &palette, row2_col_w, row2_h);
+                    render_storage_card(ui, &self.snapshot.drives, &palette, col_w, row2_h);
                     ui.add_space(col_gap);
 
-                    render_processes_card(ui, &self.snapshot.processes, &palette, row2_col_w, row2_h);
+                    render_processes_card(ui, &self.snapshot.processes, &palette, col_w, row2_h);
                     ui.add_space(col_gap);
 
-                    render_network_card(ui, &self.snapshot.network, &palette, row2_col_w, row2_h);
+                    render_network_card(ui, &self.snapshot.network, &palette, col_w, row2_h);
                     ui.add_space(col_gap);
 
-                    render_cooling_card(ui, &self.snapshot.cooling, &palette, row2_col_w, row2_h);
+                    render_cooling_card(ui, &self.snapshot.cooling, &palette, col4_w, row2_h);
                 });
             });
 
@@ -244,6 +237,16 @@ impl Drop for NexusApp {
             let _ = handle.join();
         }
     }
+}
+
+/// Calculates standardized 4-column layout widths for a given available width and column gap.
+/// Returns `(col_w, col4_w)` where `col_w` applies to columns 1-3 and `col4_w` applies to column 4.
+pub fn calculate_grid_columns(available_w: f32, col_gap: f32) -> (f32, f32) {
+    let total_gaps = col_gap * 3.0;
+    let net_w = (available_w - total_gaps).max(400.0);
+    let col_w = (net_w / 4.0).max(100.0);
+    let col4_w = (available_w - (col_w * 3.0) - total_gaps).max(100.0);
+    (col_w, col4_w)
 }
 
 #[cfg(test)]
@@ -324,6 +327,57 @@ mod tests {
         assert!(app.worker_handle.is_none());
         // Dropping after on_exit must be completely safe without double join or panic
         drop(app);
+    }
+
+    #[test]
+    fn test_grid_column_widths_alignment_across_rows() {
+        let col_gap = 10.0;
+        let test_widths = [400.0, 800.0, 960.0, 1188.0, 1220.0, 1920.0];
+
+        for &available_w in &test_widths {
+            let total_gaps = col_gap * 3.0;
+            let (col_w, col4_w) = calculate_grid_columns(available_w, col_gap);
+
+            // Row 1 columns: CPU (col_w), GPU (col_w), RAM (col_w), Chart (col4_w)
+            let row1_cols = [col_w, col_w, col_w, col4_w];
+            // Row 2 columns: Storage (col_w), Processes (col_w), Network (col_w), Cooling (col4_w)
+            let row2_cols = [col_w, col_w, col_w, col4_w];
+
+            // Verify columns 1-3 have identical, aligned widths across Row 1 and Row 2
+            assert_eq!(row1_cols[0], row2_cols[0], "Column 1 mismatch at available_w={}", available_w);
+            assert_eq!(row1_cols[1], row2_cols[1], "Column 2 mismatch at available_w={}", available_w);
+            assert_eq!(row1_cols[2], row2_cols[2], "Column 3 mismatch at available_w={}", available_w);
+            assert_eq!(row1_cols[3], row2_cols[3], "Column 4 mismatch at available_w={}", available_w);
+
+            // Verify each column is at least 100.0 px wide (no negative or collapsed geometry)
+            for (idx, &w) in row1_cols.iter().enumerate() {
+                assert!(w >= 100.0, "Column {} width ({}) < 100.0 at available_w={}", idx + 1, w, available_w);
+            }
+
+            // Verify that for standard width (available_w >= 430.0), total width matches available_w
+            if available_w >= 430.0 {
+                let total_rendered_w = col_w * 3.0 + col4_w + total_gaps;
+                assert!(
+                    (total_rendered_w - available_w).abs() < 1e-4,
+                    "Total grid width ({}) must span available width ({})",
+                    total_rendered_w,
+                    available_w
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_grid_column_widths_under_extreme_constraint() {
+        let col_gap = 10.0;
+        // Even with extremely small or negative available width, columns are clamped to >= 100.0
+        let (col_w, col4_w) = calculate_grid_columns(50.0, col_gap);
+        assert_eq!(col_w, 100.0);
+        assert_eq!(col4_w, 100.0);
+
+        let (col_w_neg, col4_w_neg) = calculate_grid_columns(-100.0, col_gap);
+        assert_eq!(col_w_neg, 100.0);
+        assert_eq!(col4_w_neg, 100.0);
     }
 }
 
