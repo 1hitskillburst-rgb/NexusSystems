@@ -40,7 +40,14 @@ fn main() -> Result<(), eframe::Error> {
             .with_title("NEXUS / SYSTEMS --- PC Control Center")
             .with_inner_size([1220.0, 420.0])
             .with_min_inner_size([960.0, 380.0])
-            .with_resizable(true),
+            .with_resizable(true)
+            .with_drag_and_drop(false),
+        vsync: true,
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+            present_mode: eframe::wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: Some(2),
+            ..Default::default()
+        },
         ..Default::default()
     };
 

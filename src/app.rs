@@ -17,22 +17,37 @@ pub struct NexusApp {
     rx: Receiver<SystemSnapshot>,
 }
 
+fn apply_theme_to_ctx(ctx: &Context, mode: ThemeMode) {
+    let palette = ThemePalette::for_mode(mode);
+    ctx.style_mut(|style| {
+        style.visuals.panel_fill = palette.background;
+        style.visuals.window_fill = palette.background;
+        style.visuals.extreme_bg_color = palette.card_bg;
+    });
+}
+
 impl NexusApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let config = AppConfig::load();
         let (tx, rx) = channel::<SystemSnapshot>();
+
+        // Apply theme to context once at creation time
+        apply_theme_to_ctx(&cc.egui_ctx, config.theme);
 
         // Initial sample
         let mut initial_collector = TelemetryCollector::new();
         let initial_snapshot = initial_collector.sample();
 
-        // Spawn background telemetry sampler thread
+        // Spawn background telemetry sampler thread and request repaint on each new sample
+        let egui_ctx = cc.egui_ctx.clone();
         thread::spawn(move || {
             let mut collector = initial_collector;
             loop {
                 thread::sleep(Duration::from_millis(1000));
                 let snap = collector.sample();
-                if tx.send(snap).is_err() {
+                if tx.send(snap).is_ok() {
+                    egui_ctx.request_repaint();
+                } else {
                     break;
                 }
             }
@@ -60,6 +75,11 @@ impl NexusApp {
 }
 
 impl eframe::App for NexusApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        let palette = ThemePalette::for_mode(self.config.theme);
+        palette.background.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // Handle theme switching keyboard shortcuts 1..6
         let mut theme_changed = false;
@@ -108,11 +128,6 @@ impl eframe::App for NexusApp {
 
         let palette = ThemePalette::for_mode(self.config.theme);
 
-        // Apply theme background
-        let mut style = (*ctx.style()).clone();
-        style.visuals.panel_fill = palette.background;
-        ctx.set_style(style);
-
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(palette.background).inner_margin(16.0))
             .show(ctx, |ui| {
@@ -127,18 +142,22 @@ impl eframe::App for NexusApp {
 
                 if theme_changed {
                     self.config.save();
+                    apply_theme_to_ctx(ctx, self.config.theme);
                 }
 
-                ui.add_space(14.0);
+                let col_gap = 12.0;
+                let row_gap = 12.0;
+                ui.add_space(row_gap);
 
                 let available_w = ui.available_width();
-                let col_gap = 12.0;
+                let available_h = ui.available_height();
+
+                // Dynamic row height: allocate half the available height to row 1
+                let row1_h = ((available_h - row_gap) * 0.5).max(150.0);
 
                 // Top row: 3 metric cards + 1 wide chart
-                // Card 1 (CPU), Card 2 (GPU), Card 3 (Memory) take 18% width each, Chart takes remaining (~46%)
+                // Metric cards take ~18.5% width each, chart takes remaining space
                 let card_w = ((available_w - (col_gap * 3.0)) * 0.185).max(180.0);
-                let chart_w = (available_w - (card_w * 3.0) - (col_gap * 3.0)).max(280.0);
-                let row1_h = 168.0;
 
                 ui.horizontal(|ui| {
                     render_cpu_card(ui, &self.snapshot.cpu, &palette, card_w, row1_h);
@@ -150,14 +169,16 @@ impl eframe::App for NexusApp {
                     render_memory_card(ui, &self.snapshot.memory, &palette, card_w, row1_h);
                     ui.add_space(col_gap);
 
+                    let chart_w = ui.available_width().max(280.0);
                     draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
                 });
 
-                ui.add_space(14.0);
+                ui.add_space(row_gap);
 
                 // Bottom row: 4 cards (Storage, Top processes, Network, Cooling)
+                // Dynamically take all remaining height to fully span to the bottom inner margin
+                let row2_h = ui.available_height().max(150.0);
                 let row2_col_w = ((available_w - (col_gap * 3.0)) / 4.0).max(180.0);
-                let row2_h = 168.0;
 
                 ui.horizontal(|ui| {
                     render_storage_card(ui, &self.snapshot.drives, &palette, row2_col_w, row2_h);
@@ -169,11 +190,12 @@ impl eframe::App for NexusApp {
                     render_network_card(ui, &self.snapshot.network, &palette, row2_col_w, row2_h);
                     ui.add_space(col_gap);
 
-                    render_cooling_card(ui, &self.snapshot.cooling, &palette, row2_col_w, row2_h);
+                    let cooling_w = ui.available_width().max(180.0);
+                    render_cooling_card(ui, &self.snapshot.cooling, &palette, cooling_w, row2_h);
                 });
             });
 
-        // Request periodic repaint for smooth animation
-        ctx.request_repaint_after(Duration::from_millis(500));
+        // Repaint periodically for telemetry and time updates (every 1 second)
+        ctx.request_repaint_after(Duration::from_millis(1000));
     }
 }

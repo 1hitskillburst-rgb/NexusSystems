@@ -14,9 +14,12 @@ pub fn draw_history_chart(
         .stroke(Stroke::new(1.0_f32, palette.border))
         .inner_margin(12.0);
 
+    let inner_w = (width - 24.0).max(40.0);
+    let inner_h = (height - 24.0).max(40.0);
+
     frame.show(ui, |ui| {
-        ui.set_width(width - 24.0);
-        ui.set_height(height - 24.0);
+        ui.set_width(inner_w);
+        ui.set_height(inner_h);
 
         // Header: "Last 60 seconds" and Legend "CPU | GPU"
         ui.horizontal(|ui| {
@@ -52,9 +55,9 @@ pub fn draw_history_chart(
 
         ui.add_space(4.0);
 
-        // Chart area allocation using allocate_painter
-        let chart_height = (height - 68.0).max(40.0);
-        let (response, painter) = ui.allocate_painter(vec2(width - 24.0, chart_height), egui::Sense::hover());
+        // Chart area allocation: header takes ~20px, bottom axis takes ~18px, spacing 8px -> ~46px overhead
+        let chart_height = (inner_h - 46.0).max(30.0);
+        let (response, painter) = ui.allocate_painter(vec2(inner_w, chart_height), egui::Sense::hover());
         let rect = response.rect;
 
         // Subtle guide lines
@@ -101,37 +104,13 @@ pub fn draw_history_chart(
             }
         }
 
-        ui.add_space(4.0);
-
-        // Bottom axis labels: 60s ago | 45s | 30s | 15s | Now
-        ui.horizontal(|ui| {
-            let labels = ["60s ago", "45s", "30s", "15s", "Now"];
-            let col_w = (width - 24.0) / 4.0;
-
-            for (idx, lbl) in labels.iter().enumerate() {
-                if idx == 0 {
-                    ui.label(
-                        egui::RichText::new(*lbl)
-                            .font(egui::FontId::monospace(10.0))
-                            .color(palette.text_muted),
-                    );
-                } else if idx == labels.len() - 1 {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(*lbl)
-                                .font(egui::FontId::monospace(10.0))
-                                .color(palette.text_muted),
-                        );
-                    });
-                } else {
-                    ui.add_space(col_w * 0.55);
-                    ui.label(
-                        egui::RichText::new(*lbl)
-                            .font(egui::FontId::monospace(10.0))
-                            .color(palette.text_muted),
-                    );
-                }
-            }
-        });
+        // Draw axis labels dynamically aligned to the chart coordinates
+        let label_font = egui::FontId::monospace(10.0);
+        let label_y = rect.max.y + 4.0;
+        painter.text(pos2(rect.min.x, label_y), egui::Align2::LEFT_TOP, "60s ago", label_font.clone(), palette.text_muted);
+        painter.text(pos2(rect.min.x + rect.width() * 0.25, label_y), egui::Align2::CENTER_TOP, "45s", label_font.clone(), palette.text_muted);
+        painter.text(pos2(rect.min.x + rect.width() * 0.50, label_y), egui::Align2::CENTER_TOP, "30s", label_font.clone(), palette.text_muted);
+        painter.text(pos2(rect.min.x + rect.width() * 0.75, label_y), egui::Align2::CENTER_TOP, "15s", label_font.clone(), palette.text_muted);
+        painter.text(pos2(rect.max.x, label_y), egui::Align2::RIGHT_TOP, "Now", label_font, palette.text_muted);
     });
 }

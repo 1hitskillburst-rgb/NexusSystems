@@ -53,13 +53,16 @@ pub fn card_container<R>(
         .stroke(Stroke::new(1.0_f32, palette.border))
         .inner_margin(12.0);
 
+    let inner_w = (width - 24.0).max(40.0);
+    let inner_h = (height - 24.0).max(40.0);
+
     ui.allocate_ui_with_layout(
         vec2(width, height),
         egui::Layout::top_down(egui::Align::LEFT),
         |ui| {
             frame.show(ui, |ui| {
-                ui.set_width(width - 24.0);
-                ui.set_height(height - 24.0);
+                ui.set_width(inner_w);
+                ui.set_height(inner_h);
                 add_contents(ui)
             }).inner
         },
