@@ -1,10 +1,22 @@
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_uint};
-use libloading::{Library, Symbol};
+use libloading::Library;
 use crate::telemetry::models::GpuSnapshot;
 
 type NvmlReturn = c_uint;
 type NvmlDevice = *mut c_void;
+
+type NvmlInitFn = unsafe extern "C" fn() -> NvmlReturn;
+type NvmlShutdownFn = unsafe extern "C" fn() -> NvmlReturn;
+type NvmlDeviceGetCountFn = unsafe extern "C" fn(*mut c_uint) -> NvmlReturn;
+type NvmlDeviceGetHandleByIndexFn = unsafe extern "C" fn(c_uint, *mut NvmlDevice) -> NvmlReturn;
+type NvmlDeviceGetNameFn = unsafe extern "C" fn(NvmlDevice, *mut c_char, c_uint) -> NvmlReturn;
+type NvmlDeviceGetUtilizationFn = unsafe extern "C" fn(NvmlDevice, *mut NvmlUtilization) -> NvmlReturn;
+type NvmlDeviceGetTemperatureFn = unsafe extern "C" fn(NvmlDevice, c_uint, *mut c_uint) -> NvmlReturn;
+type NvmlDeviceGetMemoryInfoFn = unsafe extern "C" fn(NvmlDevice, *mut NvmlMemory) -> NvmlReturn;
+type NvmlDeviceGetClockInfoFn = unsafe extern "C" fn(NvmlDevice, c_uint, *mut c_uint) -> NvmlReturn;
+type NvmlDeviceGetPowerUsageFn = unsafe extern "C" fn(NvmlDevice, *mut c_uint) -> NvmlReturn;
+type NvmlDeviceGetFanSpeedFn = unsafe extern "C" fn(NvmlDevice, *mut c_uint) -> NvmlReturn;
 
 #[repr(C)]
 struct NvmlUtilization {
@@ -22,12 +34,15 @@ struct NvmlMemory {
 pub struct NvmlCollector {
     device: NvmlDevice,
     pub name: String,
-    device_get_utilization: Symbol<'static, unsafe extern "C" fn(NvmlDevice, *mut NvmlUtilization) -> NvmlReturn>,
-    device_get_temperature: Symbol<'static, unsafe extern "C" fn(NvmlDevice, c_uint, *mut c_uint) -> NvmlReturn>,
-    device_get_memory_info: Symbol<'static, unsafe extern "C" fn(NvmlDevice, *mut NvmlMemory) -> NvmlReturn>,
-    device_get_clock_info: Symbol<'static, unsafe extern "C" fn(NvmlDevice, c_uint, *mut c_uint) -> NvmlReturn>,
-    device_get_power_usage: Option<Symbol<'static, unsafe extern "C" fn(NvmlDevice, *mut c_uint) -> NvmlReturn>>,
-    device_get_fan_speed: Option<Symbol<'static, unsafe extern "C" fn(NvmlDevice, *mut c_uint) -> NvmlReturn>>,
+    device_get_utilization: NvmlDeviceGetUtilizationFn,
+    device_get_temperature: NvmlDeviceGetTemperatureFn,
+    device_get_memory_info: NvmlDeviceGetMemoryInfoFn,
+    device_get_clock_info: NvmlDeviceGetClockInfoFn,
+    device_get_power_usage: Option<NvmlDeviceGetPowerUsageFn>,
+    device_get_fan_speed: Option<NvmlDeviceGetFanSpeedFn>,
+    nvml_shutdown: NvmlShutdownFn,
+    #[allow(dead_code)]
+    lib: Library,
 }
 
 impl NvmlCollector {
@@ -37,43 +52,72 @@ impl NvmlCollector {
                 .map_err(|e| format!("NVML not available: {e}"))?
         };
 
-        // Leak library reference to allow static lifetime symbols
-        let lib_ref: &'static Library = Box::leak(Box::new(lib));
-
         unsafe {
-            let nvml_init: Symbol<unsafe extern "C" fn() -> NvmlReturn> = lib_ref
-                .get(b"nvmlInit_v2\0")
-                .or_else(|_| lib_ref.get(b"nvmlInit\0"))
-                .map_err(|e| format!("nvmlInit missing: {e}"))?;
+            let nvml_init: NvmlInitFn = *(lib
+                .get::<NvmlInitFn>(b"nvmlInit_v2\0")
+                .or_else(|_| lib.get::<NvmlInitFn>(b"nvmlInit\0"))
+                .map_err(|e| format!("nvmlInit missing: {e}"))?);
+
+            let nvml_shutdown: NvmlShutdownFn = *lib
+                .get::<NvmlShutdownFn>(b"nvmlShutdown\0")
+                .map_err(|e| format!("nvmlShutdown missing: {e}"))?;
+
+            let get_count: NvmlDeviceGetCountFn = *(lib
+                .get::<NvmlDeviceGetCountFn>(b"nvmlDeviceGetCount_v2\0")
+                .or_else(|_| lib.get::<NvmlDeviceGetCountFn>(b"nvmlDeviceGetCount\0"))
+                .map_err(|e| format!("nvmlDeviceGetCount missing: {e}"))?);
+
+            let get_handle: NvmlDeviceGetHandleByIndexFn = *(lib
+                .get::<NvmlDeviceGetHandleByIndexFn>(b"nvmlDeviceGetHandleByIndex_v2\0")
+                .or_else(|_| lib.get::<NvmlDeviceGetHandleByIndexFn>(b"nvmlDeviceGetHandleByIndex\0"))
+                .map_err(|e| format!("nvmlDeviceGetHandleByIndex missing: {e}"))?);
+
+            let get_name: NvmlDeviceGetNameFn = *lib
+                .get::<NvmlDeviceGetNameFn>(b"nvmlDeviceGetName\0")
+                .map_err(|e| format!("nvmlDeviceGetName missing: {e}"))?;
+
+            let device_get_utilization: NvmlDeviceGetUtilizationFn = *lib
+                .get::<NvmlDeviceGetUtilizationFn>(b"nvmlDeviceGetUtilizationRates\0")
+                .map_err(|e| format!("nvmlDeviceGetUtilizationRates missing: {e}"))?;
+
+            let device_get_temperature: NvmlDeviceGetTemperatureFn = *lib
+                .get::<NvmlDeviceGetTemperatureFn>(b"nvmlDeviceGetTemperature\0")
+                .map_err(|e| format!("nvmlDeviceGetTemperature missing: {e}"))?;
+
+            let device_get_memory_info: NvmlDeviceGetMemoryInfoFn = *lib
+                .get::<NvmlDeviceGetMemoryInfoFn>(b"nvmlDeviceGetMemoryInfo\0")
+                .map_err(|e| format!("nvmlDeviceGetMemoryInfo missing: {e}"))?;
+
+            let device_get_clock_info: NvmlDeviceGetClockInfoFn = *lib
+                .get::<NvmlDeviceGetClockInfoFn>(b"nvmlDeviceGetClockInfo\0")
+                .map_err(|e| format!("nvmlDeviceGetClockInfo missing: {e}"))?;
+
+            let device_get_power_usage: Option<NvmlDeviceGetPowerUsageFn> = lib
+                .get::<NvmlDeviceGetPowerUsageFn>(b"nvmlDeviceGetPowerUsage\0")
+                .ok()
+                .map(|sym| *sym);
+
+            let device_get_fan_speed: Option<NvmlDeviceGetFanSpeedFn> = lib
+                .get::<NvmlDeviceGetFanSpeedFn>(b"nvmlDeviceGetFanSpeed\0")
+                .ok()
+                .map(|sym| *sym);
 
             let res = nvml_init();
             if res != 0 {
                 return Err(format!("nvmlInit returned error code: {res}"));
             }
 
-            let get_count: Symbol<unsafe extern "C" fn(*mut c_uint) -> NvmlReturn> = lib_ref
-                .get(b"nvmlDeviceGetCount_v2\0")
-                .or_else(|_| lib_ref.get(b"nvmlDeviceGetCount\0"))
-                .map_err(|e| format!("nvmlDeviceGetCount missing: {e}"))?;
-
             let mut count: c_uint = 0;
             if get_count(&mut count) != 0 || count == 0 {
+                let _ = nvml_shutdown();
                 return Err("No NVML GPU devices found".to_string());
             }
 
-            let get_handle: Symbol<unsafe extern "C" fn(c_uint, *mut NvmlDevice) -> NvmlReturn> = lib_ref
-                .get(b"nvmlDeviceGetHandleByIndex_v2\0")
-                .or_else(|_| lib_ref.get(b"nvmlDeviceGetHandleByIndex\0"))
-                .map_err(|e| format!("nvmlDeviceGetHandleByIndex missing: {e}"))?;
-
             let mut device: NvmlDevice = std::ptr::null_mut();
             if get_handle(0, &mut device) != 0 {
+                let _ = nvml_shutdown();
                 return Err("Failed to get device handle 0".to_string());
             }
-
-            let get_name: Symbol<unsafe extern "C" fn(NvmlDevice, *mut c_char, c_uint) -> NvmlReturn> = lib_ref
-                .get(b"nvmlDeviceGetName\0")
-                .map_err(|e| format!("nvmlDeviceGetName missing: {e}"))?;
 
             let mut name_buf = [0i8; 128];
             let name = if get_name(device, name_buf.as_mut_ptr(), 128) == 0 {
@@ -82,25 +126,6 @@ impl NvmlCollector {
             } else {
                 "NVIDIA Graphics Device".to_string()
             };
-
-            let device_get_utilization = lib_ref
-                .get(b"nvmlDeviceGetUtilizationRates\0")
-                .map_err(|e| format!("nvmlDeviceGetUtilizationRates missing: {e}"))?;
-
-            let device_get_temperature = lib_ref
-                .get(b"nvmlDeviceGetTemperature\0")
-                .map_err(|e| format!("nvmlDeviceGetTemperature missing: {e}"))?;
-
-            let device_get_memory_info = lib_ref
-                .get(b"nvmlDeviceGetMemoryInfo\0")
-                .map_err(|e| format!("nvmlDeviceGetMemoryInfo missing: {e}"))?;
-
-            let device_get_clock_info = lib_ref
-                .get(b"nvmlDeviceGetClockInfo\0")
-                .map_err(|e| format!("nvmlDeviceGetClockInfo missing: {e}"))?;
-
-            let device_get_power_usage = lib_ref.get(b"nvmlDeviceGetPowerUsage\0").ok();
-            let device_get_fan_speed = lib_ref.get(b"nvmlDeviceGetFanSpeed\0").ok();
 
             Ok(Self {
                 device,
@@ -111,6 +136,8 @@ impl NvmlCollector {
                 device_get_clock_info,
                 device_get_power_usage,
                 device_get_fan_speed,
+                nvml_shutdown,
+                lib,
             })
         }
     }
@@ -132,7 +159,7 @@ impl NvmlCollector {
             let clock_ok = (self.device_get_clock_info)(self.device, 0, &mut clock) == 0;
 
             let mut power_w = None;
-            if let Some(ref get_power) = self.device_get_power_usage {
+            if let Some(get_power) = self.device_get_power_usage {
                 let mut pwr_mw: c_uint = 0;
                 if get_power(self.device, &mut pwr_mw) == 0 {
                     power_w = Some(pwr_mw as f32 / 1000.0);
@@ -140,7 +167,7 @@ impl NvmlCollector {
             }
 
             let mut fan_speed = None;
-            if let Some(ref get_fan) = self.device_get_fan_speed {
+            if let Some(get_fan) = self.device_get_fan_speed {
                 let mut fan_pct: c_uint = 0;
                 if get_fan(self.device, &mut fan_pct) == 0 {
                     fan_speed = Some(fan_pct as f32);
@@ -161,6 +188,14 @@ impl NvmlCollector {
                 fan_speed_pct: fan_speed,
                 is_available: true,
             }
+        }
+    }
+}
+
+impl Drop for NvmlCollector {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = (self.nvml_shutdown)();
         }
     }
 }
@@ -243,6 +278,50 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_nvml_collector_lifecycle_and_reinitialization() {
+        if let Ok(collector) = NvmlCollector::try_new() {
+            let snap1 = collector.sample();
+            assert!(snap1.is_available);
+            // Dropping invokes Drop which safely calls nvmlShutdown and unloads Library
+            drop(collector);
+
+            // Re-initializing NVML after drop must succeed cleanly
+            let collector2 = NvmlCollector::try_new();
+            assert!(collector2.is_ok(), "Re-initialization after drop must succeed");
+            let c2 = collector2.unwrap();
+            let snap2 = c2.sample();
+            assert!(snap2.is_available);
+            assert_eq!(snap1.model_name, snap2.model_name);
+            drop(c2);
+        }
+    }
+
+    #[test]
+    fn test_nvml_collector_scoped_drop() {
+        let result = NvmlCollector::try_new();
+        if let Ok(collector) = result {
+            let name = collector.name.clone();
+            assert!(!name.is_empty());
+            {
+                let inner = collector;
+                let s = inner.sample();
+                assert!(s.is_available);
+                // inner drops here at end of scope
+            }
+        }
+    }
+
+    #[test]
+    fn test_nvml_collector_send_and_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<NvmlCollector>();
+        assert_sync::<NvmlCollector>();
+    }
 }
+
 
 
