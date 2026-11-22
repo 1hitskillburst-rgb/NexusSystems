@@ -1,5 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
-use std::thread;
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use egui::{Context, Key};
 use crate::config::AppConfig;
@@ -15,6 +17,8 @@ pub struct NexusApp {
     snapshot: SystemSnapshot,
     history: Vec<HistoryPoint>,
     rx: Receiver<SystemSnapshot>,
+    running: Arc<AtomicBool>,
+    worker_handle: Option<JoinHandle<()>>,
 }
 
 fn apply_theme_to_ctx(ctx: &Context, mode: ThemeMode) {
@@ -28,25 +32,40 @@ fn apply_theme_to_ctx(ctx: &Context, mode: ThemeMode) {
 
 impl NexusApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::with_context(cc.egui_ctx.clone())
+    }
+
+    pub fn with_context(egui_ctx: egui::Context) -> Self {
         let config = AppConfig::load();
         let (tx, rx) = channel::<SystemSnapshot>();
 
         // Apply theme to context once at creation time
-        apply_theme_to_ctx(&cc.egui_ctx, config.theme);
+        apply_theme_to_ctx(&egui_ctx, config.theme);
 
         // Initial sample
         let mut initial_collector = TelemetryCollector::new();
         let initial_snapshot = initial_collector.sample();
 
         // Spawn background telemetry sampler thread and request repaint on each new sample
-        let egui_ctx = cc.egui_ctx.clone();
-        thread::spawn(move || {
+        let running = Arc::new(AtomicBool::new(true));
+        let is_running = Arc::clone(&running);
+        let ctx = egui_ctx.clone();
+        let worker_handle = thread::spawn(move || {
             let mut collector = initial_collector;
-            loop {
-                thread::sleep(Duration::from_millis(1000));
+            while is_running.load(Ordering::Relaxed) {
+                // Sleep in slices (10 x 100ms = 1000ms) to allow prompt termination on shutdown
+                for _ in 0..10 {
+                    if !is_running.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                if !is_running.load(Ordering::Relaxed) {
+                    break;
+                }
                 let snap = collector.sample();
                 if tx.send(snap).is_ok() {
-                    egui_ctx.request_repaint();
+                    ctx.request_repaint();
                 } else {
                     break;
                 }
@@ -70,6 +89,8 @@ impl NexusApp {
             snapshot: initial_snapshot,
             history,
             rx,
+            running,
+            worker_handle: Some(worker_handle),
         }
     }
 }
@@ -78,6 +99,13 @@ impl eframe::App for NexusApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         let palette = ThemePalette::for_mode(self.config.theme);
         palette.background.to_normalized_gamma_f32()
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.running.store(false, Ordering::SeqCst);
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
+        }
     }
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
@@ -208,3 +236,94 @@ impl eframe::App for NexusApp {
         ctx.request_repaint_after(Duration::from_millis(1000));
     }
 }
+
+impl Drop for NexusApp {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::SeqCst);
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::App;
+
+    fn create_test_app() -> NexusApp {
+        NexusApp::with_context(egui::Context::default())
+    }
+
+    #[test]
+    fn test_worker_thread_stops_promptly_on_cancellation_flag() {
+        let mut app = create_test_app();
+        assert!(app.running.load(Ordering::SeqCst));
+        assert!(app.worker_handle.is_some());
+
+        let handle = app.worker_handle.take().unwrap();
+        let running = Arc::clone(&app.running);
+
+        let start = std::time::Instant::now();
+        running.store(false, Ordering::SeqCst);
+        let join_res = handle.join();
+        let elapsed = start.elapsed();
+
+        assert!(join_res.is_ok(), "Worker thread panicked");
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "Worker thread took too long to exit: {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_app_on_exit_terminates_and_joins_thread() {
+        let mut app = create_test_app();
+        assert!(app.worker_handle.is_some());
+
+        let start = std::time::Instant::now();
+        app.on_exit(None);
+        let elapsed = start.elapsed();
+
+        assert!(!app.running.load(Ordering::SeqCst));
+        assert!(app.worker_handle.is_none());
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "on_exit took too long to join worker thread: {:?}",
+            elapsed
+        );
+
+        // Calling on_exit again is safe and idempotent
+        app.on_exit(None);
+        assert!(app.worker_handle.is_none());
+    }
+
+    #[test]
+    fn test_app_drop_terminates_and_joins_thread() {
+        let app = create_test_app();
+        let running = Arc::clone(&app.running);
+        assert!(running.load(Ordering::SeqCst));
+
+        let start = std::time::Instant::now();
+        drop(app);
+        let elapsed = start.elapsed();
+
+        assert!(!running.load(Ordering::SeqCst));
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "Drop took too long to join worker thread: {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_app_on_exit_then_drop_safety() {
+        let mut app = create_test_app();
+        app.on_exit(None);
+        assert!(app.worker_handle.is_none());
+        // Dropping after on_exit must be completely safe without double join or panic
+        drop(app);
+    }
+}
+
