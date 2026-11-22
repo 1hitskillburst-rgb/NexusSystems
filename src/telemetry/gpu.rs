@@ -20,7 +20,6 @@ struct NvmlMemory {
 }
 
 pub struct NvmlCollector {
-    _lib: Library,
     device: NvmlDevice,
     pub name: String,
     device_get_utilization: Symbol<'static, unsafe extern "C" fn(NvmlDevice, *mut NvmlUtilization) -> NvmlReturn>,
@@ -34,8 +33,7 @@ pub struct NvmlCollector {
 impl NvmlCollector {
     pub fn try_new() -> Result<Self, String> {
         let lib = unsafe {
-            Library::new("nvml.dll")
-                .or_else(|_| Library::new(r"C:\Windows\System32\nvml.dll"))
+            Library::new(r"C:\Windows\System32\nvml.dll")
                 .map_err(|e| format!("NVML not available: {e}"))?
         };
 
@@ -105,7 +103,6 @@ impl NvmlCollector {
             let device_get_fan_speed = lib_ref.get(b"nvmlDeviceGetFanSpeed\0").ok();
 
             Ok(Self {
-                _lib: Library::new("nvml.dll").unwrap(), // placeholder struct field
                 device,
                 name,
                 device_get_utilization,
@@ -170,4 +167,82 @@ impl NvmlCollector {
 
 unsafe impl Send for NvmlCollector {}
 unsafe impl Sync for NvmlCollector {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_nvml_try_new_no_panic() {
+        let result = NvmlCollector::try_new();
+        let system32_nvml_exists = Path::new(r"C:\Windows\System32\nvml.dll").exists();
+
+        match result {
+            Ok(collector) => {
+                assert!(system32_nvml_exists, "NvmlCollector succeeded, so nvml.dll must exist in System32");
+                assert!(!collector.name.is_empty(), "GPU device name should not be empty");
+                let snap = collector.sample();
+                assert!(snap.is_available, "GpuSnapshot must be marked available");
+                assert_eq!(snap.model_name, collector.name);
+            }
+            Err(err) => {
+                assert!(!err.is_empty(), "NVML error message must not be empty");
+                assert!(
+                    err.contains("NVML not available")
+                        || err.contains("nvmlInit")
+                        || err.contains("No NVML GPU devices found")
+                        || err.contains("Failed to get device handle"),
+                    "Expected descriptive NVML error, got: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_nvml_system32_dll_path_contract() {
+        let system32_nvml = Path::new(r"C:\Windows\System32\nvml.dll");
+        if !system32_nvml.exists() {
+            let res = NvmlCollector::try_new();
+            assert!(res.is_err(), "Must fail when C:\\Windows\\System32\\nvml.dll does not exist");
+            let err = res.err().unwrap();
+            assert!(
+                err.contains("NVML not available"),
+                "Error should state NVML not available when System32 DLL is absent, got: {err}"
+            );
+        } else {
+            // When nvml.dll exists in System32, try_new should execute safely without panicking on unwrap
+            let res = NvmlCollector::try_new();
+            assert!(res.is_ok() || res.is_err());
+        }
+    }
+
+    #[test]
+    fn test_sample_gpu_metrics_validity() {
+        if let Ok(collector) = NvmlCollector::try_new() {
+            let snap = collector.sample();
+            assert!(snap.is_available);
+            assert!(
+                snap.utilization_pct >= 0.0 && snap.utilization_pct <= 100.0,
+                "GPU utilization must be 0-100%, got: {}",
+                snap.utilization_pct
+            );
+            assert!(snap.vram_total_gb > 0.0, "VRAM total must be positive");
+            assert!(snap.vram_used_gb >= 0.0, "VRAM used must be non-negative");
+            assert!(
+                snap.vram_used_gb <= snap.vram_total_gb,
+                "VRAM used ({}) must not exceed total ({})",
+                snap.vram_used_gb,
+                snap.vram_total_gb
+            );
+            if let Some(temp) = snap.core_temp_c {
+                assert!(temp >= 0.0 && temp <= 150.0, "GPU temp out of realistic range: {temp}");
+            }
+            if let Some(clock) = snap.core_clock_mhz {
+                assert!(clock >= 0.0 && clock <= 5000.0, "GPU clock out of realistic range: {clock}");
+            }
+        }
+    }
+}
+
 
