@@ -19,10 +19,19 @@ pub struct TelemetryCollector {
 
 impl TelemetryCollector {
     pub fn new() -> Self {
+        // Restrict process refresh to only CPU and memory metrics.
+        // ProcessRefreshKind::everything() would also read environment variables,
+        // command-line arguments, and security tokens for every process — unnecessary
+        // and a privacy concern (MED-15 / PRIV-01).
+        // In sysinfo 0.31, ProcessRefreshKind::new() starts empty; then we opt-in.
+        let process_refresh_kind = sysinfo::ProcessRefreshKind::new()
+            .with_cpu()
+            .with_memory();
+
         let refresh_kind = RefreshKind::new()
             .with_cpu(CpuRefreshKind::everything())
             .with_memory(sysinfo::MemoryRefreshKind::everything())
-            .with_processes(sysinfo::ProcessRefreshKind::everything());
+            .with_processes(process_refresh_kind);
 
         let mut sys = System::new_with_specifics(refresh_kind);
         sys.refresh_all();
@@ -58,10 +67,13 @@ impl TelemetryCollector {
         let _elapsed = now.duration_since(self.last_sample_instant);
         self.last_sample_instant = now;
 
-        // Refresh system metrics
+        // Refresh system metrics — process refresh scoped to CPU and memory only (MED-15/PRIV-01)
         self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+        self.sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            sysinfo::ProcessRefreshKind::new().with_cpu().with_memory(),
+        );
         self.disks.refresh();
         self.networks.refresh();
 
