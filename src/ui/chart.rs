@@ -9,6 +9,7 @@ pub fn clamp_chart_width(inner_w: f32) -> f32 {
     inner_w.max(100.0)
 }
 
+#[allow(dead_code)]
 pub fn draw_history_chart(
     ui: &mut Ui,
     history: &[HistoryPoint],

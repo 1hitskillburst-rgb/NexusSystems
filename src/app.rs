@@ -6,12 +6,14 @@ use std::time::Duration;
 use egui::Context;
 use crate::config::AppConfig;
 use crate::telemetry::models::{HistoryPoint, SystemSnapshot};
+use crate::telemetry::recording::PerformanceRecordingSession;
 use crate::telemetry::TelemetryCollector;
 use crate::theme::ThemePalette;
 use crate::ui::cards::*;
-use crate::ui::chart::draw_history_chart;
 use crate::ui::header::render_header;
+use crate::ui::recording_chart::{render_chart_panel, ChartViewMode};
 use crate::ui::settings::render_settings_window;
+
 
 pub struct NexusApp {
     config: AppConfig,
@@ -22,7 +24,10 @@ pub struct NexusApp {
     refresh_interval: Arc<AtomicU64>,
     worker_handle: Option<JoinHandle<()>>,
     settings_open: bool,
+    recording: PerformanceRecordingSession,
+    chart_view_mode: ChartViewMode,
 }
+
 
 fn apply_theme_to_ctx(ctx: &Context) {
     let palette = ThemePalette::vintage();
@@ -100,7 +105,10 @@ impl NexusApp {
             refresh_interval,
             worker_handle: Some(worker_handle),
             settings_open: false,
+            recording: PerformanceRecordingSession::new(),
+            chart_view_mode: ChartViewMode::Live,
         }
+
     }
 }
 
@@ -137,6 +145,14 @@ impl eframe::App for NexusApp {
             if self.history.len() > 60 {
                 self.history.remove(0);
             }
+
+            // Capture telemetry snapshot into active recording session
+            self.recording.add_sample(&self.snapshot);
+        }
+
+        // Request prompt repaint if actively recording so live duration counter is smooth
+        if self.recording.is_recording() {
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
 
         let palette = ThemePalette::vintage();
@@ -149,8 +165,15 @@ impl eframe::App for NexusApp {
                     return;
                 }
 
-                // Header with Settings Cog Button
-                render_header(ui, &self.snapshot.info, &palette, &mut self.settings_open);
+                // Header with Settings Cog Button and Performance Recording Controls
+                render_header(
+                    ui,
+                    &self.snapshot.info,
+                    &palette,
+                    &mut self.settings_open,
+                    &mut self.recording,
+                    Some(&mut self.chart_view_mode),
+                );
 
                 let col_gap = 10.0;
                 let row_gap = 12.0;
@@ -187,8 +210,17 @@ impl eframe::App for NexusApp {
                     render_memory_card(ui, &self.snapshot.memory, &palette, col_w, row1_h);
                     ui.add_space(col_gap);
 
-                    draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
+                    render_chart_panel(
+                        ui,
+                        &self.history,
+                        &self.recording,
+                        &palette,
+                        &mut self.chart_view_mode,
+                        chart_w,
+                        row1_h,
+                    );
                 });
+
 
                 // Row 2: Secondary Metrics (Configurable Visibility & Smart Auto-Collapse)
                 if has_row2 {
@@ -432,4 +464,127 @@ mod tests {
         assert_eq!(col_w_neg, 100.0);
         assert_eq!(col4_w_neg, 100.0);
     }
+
+    #[test]
+    fn test_app_recording_initial_state() {
+        let app = create_test_app();
+        assert!(app.recording.is_idle());
+        assert!(app.recording.is_empty());
+        assert_eq!(app.chart_view_mode, ChartViewMode::Live);
+    }
+
+    #[test]
+    fn test_app_recording_start_capture_stop_and_discard() {
+        let mut app = create_test_app();
+
+        // 1. Start recording
+        app.recording.start();
+        app.chart_view_mode = ChartViewMode::Recording;
+        assert!(app.recording.is_recording());
+        assert_eq!(app.chart_view_mode, ChartViewMode::Recording);
+
+        // 2. Add sample
+        app.recording.add_sample(&app.snapshot);
+        assert_eq!(app.recording.sample_count(), 1);
+
+        // 3. Stop recording
+        app.recording.stop();
+        assert!(app.recording.is_stopped());
+        assert_eq!(app.recording.sample_count(), 1);
+
+        // 4. Discard immediately purges data
+        app.recording.discard();
+        app.chart_view_mode = ChartViewMode::Live;
+        assert!(app.recording.is_idle());
+        assert!(app.recording.is_empty());
+        assert_eq!(app.chart_view_mode, ChartViewMode::Live);
+    }
+
+    #[test]
+    fn test_app_update_frame_renders_cleanly() {
+        let mut app = create_test_app();
+        let palette = ThemePalette::vintage();
+        let ctx = egui::Context::default();
+
+        // Render header and chart panel in Live mode
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_header(
+                    ui,
+                    &app.snapshot.info,
+                    &palette,
+                    &mut app.settings_open,
+                    &mut app.recording,
+                    Some(&mut app.chart_view_mode),
+                );
+                render_chart_panel(
+                    ui,
+                    &app.history,
+                    &app.recording,
+                    &palette,
+                    &mut app.chart_view_mode,
+                    350.0,
+                    180.0,
+                );
+            });
+        });
+
+        // Start recording and switch to recording graph
+        app.recording.start();
+        app.recording.add_sample(&app.snapshot);
+        app.chart_view_mode = ChartViewMode::Recording;
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_header(
+                    ui,
+                    &app.snapshot.info,
+                    &palette,
+                    &mut app.settings_open,
+                    &mut app.recording,
+                    Some(&mut app.chart_view_mode),
+                );
+                render_chart_panel(
+                    ui,
+                    &app.history,
+                    &app.recording,
+                    &palette,
+                    &mut app.chart_view_mode,
+                    350.0,
+                    180.0,
+                );
+            });
+        });
+
+        // Stop and render
+        app.recording.stop();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_header(
+                    ui,
+                    &app.snapshot.info,
+                    &palette,
+                    &mut app.settings_open,
+                    &mut app.recording,
+                    Some(&mut app.chart_view_mode),
+                );
+                render_chart_panel(
+                    ui,
+                    &app.history,
+                    &app.recording,
+                    &palette,
+                    &mut app.chart_view_mode,
+                    350.0,
+                    180.0,
+                );
+            });
+        });
+
+        // Discard and verify clean purge
+        app.recording.discard();
+        assert!(app.recording.is_idle());
+        assert!(app.recording.is_empty());
+    }
+
 }
+
