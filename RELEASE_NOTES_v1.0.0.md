@@ -164,8 +164,8 @@ The `NexusSystems-v1.0.0-windows-x64.zip` release package includes:
 
 | File | Type | SHA-256 Checksum |
 | :--- | :--- | :--- |
-| **`NexusSystems.exe`** | 64-bit Portable Executable | `CAB7F8093B7644F9BF5D4DA11AA052F5FF5BE36B6A60F8DEA9077ED16AF53A14` |
-| **`NexusSystems-v1.0.0-windows-x64.zip`** | Compressed Archive | `3024B34771D69A28EFFA1EC3107B4656BE5797F1B0841E41F9B9DA8D64BA61C4` |
+| **`NexusSystems.exe`** | 64-bit Portable Executable | `B597B8EE4EE867BD6F64786B9FDE684F3AEE33AC76DDF85CC23AB1D6CB1AA38D` |
+| **`NexusSystems-v1.0.0-windows-x64.zip`** | Compressed Archive | `456F6C345A50DB122AF731673F946A95E3A45C44A9AA1E650AC5B24B61FE7880` |
 
 To verify the integrity of the downloaded executable on Windows PowerShell:
 ```powershell

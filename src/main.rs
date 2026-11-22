@@ -12,10 +12,27 @@ use telemetry::TelemetryCollector;
 #[cfg(windows)]
 extern "system" {
     fn AttachConsole(dw_process_id: u32) -> i32;
+    fn GetStdHandle(n_std_handle: u32) -> *mut std::ffi::c_void;
+    fn SetStdHandle(n_std_handle: u32, h_handle: *mut std::ffi::c_void) -> i32;
+    fn CreateFileW(
+        lp_file_name: *const u16,
+        dw_desired_access: u32,
+        dw_share_mode: u32,
+        lp_security_attributes: *mut std::ffi::c_void,
+        dw_creation_disposition: u32,
+        dw_flags_and_attributes: u32,
+        h_template_file: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void;
 }
 
 #[cfg(windows)]
 const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+#[cfg(windows)]
+const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5;
+#[cfg(windows)]
+const STD_ERROR_HANDLE: u32 = 0xFFFF_FFF4;
+#[cfg(windows)]
+const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1isize as *mut std::ffi::c_void;
 
 pub const INITIAL_INNER_WIDTH: f32 = 1220.0;
 pub const INITIAL_INNER_HEIGHT: f32 = 460.0;
@@ -28,7 +45,25 @@ fn main() -> Result<(), eframe::Error> {
     if args.contains(&"--test-telemetry".to_string()) {
         #[cfg(windows)]
         unsafe {
-            AttachConsole(ATTACH_PARENT_PROCESS);
+            let current_out = GetStdHandle(STD_OUTPUT_HANDLE);
+            if current_out.is_null() || current_out == INVALID_HANDLE_VALUE {
+                if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+                    let conout_name: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+                    let handle = CreateFileW(
+                        conout_name.as_ptr(),
+                        0x4000_0000 | 0x8000_0000, // GENERIC_READ | GENERIC_WRITE
+                        1 | 2,                     // FILE_SHARE_READ | FILE_SHARE_WRITE
+                        std::ptr::null_mut(),
+                        3, // OPEN_EXISTING
+                        0,
+                        std::ptr::null_mut(),
+                    );
+                    if handle != INVALID_HANDLE_VALUE && !handle.is_null() {
+                        SetStdHandle(STD_OUTPUT_HANDLE, handle);
+                        SetStdHandle(STD_ERROR_HANDLE, handle);
+                    }
+                }
+            }
         }
 
         println!("=== NEXUS SYSTEMS TELEMETRY TEST ===");

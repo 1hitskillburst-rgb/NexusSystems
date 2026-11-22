@@ -3,3 +3,4 @@
 *.pdb
 nexus_settings.json
 Cargo.lock
+*.exe
