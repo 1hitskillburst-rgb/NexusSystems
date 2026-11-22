@@ -1,0 +1,5 @@
+/target
+**/*.rs.bk
+*.pdb
+nexus_settings.json
+Cargo.lock
