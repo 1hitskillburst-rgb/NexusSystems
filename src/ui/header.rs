@@ -14,16 +14,17 @@ pub fn render_recording_controls(
 ) {
     match recording.state() {
         RecordingState::Idle => {
-            // Idle state: "START RECORDING" button
+            // Idle state: compact "⏺ REC" button next to Settings
             let start_btn = egui::Button::new(
-                egui::RichText::new("⏺ START RECORDING")
+                egui::RichText::new("⏺ REC")
                     .font(egui::FontId::monospace(11.0))
                     .strong()
                     .color(palette.text_main),
             )
             .fill(palette.card_bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(130.0, 22.0));
+            .min_size(vec2(60.0, 22.0))
+            .rounding(0.0);
 
             if ui
                 .add(start_btn)
@@ -45,7 +46,8 @@ pub fn render_recording_controls(
             let rec_frame = egui::Frame::none()
                 .fill(palette.bar_active)
                 .stroke(Stroke::new(1.0_f32, palette.border))
-                .inner_margin(egui::Margin::symmetric(6.0, 3.0));
+                .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+                .rounding(0.0);
 
             rec_frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -75,7 +77,8 @@ pub fn render_recording_controls(
             )
             .fill(palette.card_bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(60.0, 22.0));
+            .min_size(vec2(60.0, 22.0))
+            .rounding(0.0);
 
             if ui
                 .add(stop_btn)
@@ -95,7 +98,8 @@ pub fn render_recording_controls(
             )
             .fill(palette.card_bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(72.0, 22.0));
+            .min_size(vec2(76.0, 22.0))
+            .rounding(0.0);
 
             if ui
                 .add(discard_btn)
@@ -116,7 +120,8 @@ pub fn render_recording_controls(
             let badge_frame = egui::Frame::none()
                 .fill(palette.bar_track)
                 .stroke(Stroke::new(1.0_f32, palette.border))
-                .inner_margin(egui::Margin::symmetric(6.0, 3.0));
+                .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+                .rounding(0.0);
 
             badge_frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -146,7 +151,8 @@ pub fn render_recording_controls(
             )
             .fill(palette.card_bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(76.0, 22.0));
+            .min_size(vec2(76.0, 22.0))
+            .rounding(0.0);
 
             if ui
                 .add(new_btn)
@@ -169,7 +175,8 @@ pub fn render_recording_controls(
             )
             .fill(palette.card_bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(120.0, 22.0));
+            .min_size(vec2(120.0, 22.0))
+            .rounding(0.0);
 
             if ui
                 .add(discard_done_btn)
@@ -188,7 +195,6 @@ pub fn render_recording_controls(
 /// Renders a dedicated standalone performance recording toolbar matching the Vintage theme.
 #[allow(dead_code)]
 pub fn render_recording_toolbar(
-
     ui: &mut Ui,
     recording: &mut PerformanceRecordingSession,
     chart_mode: Option<&mut ChartViewMode>,
@@ -231,14 +237,9 @@ pub fn render_header(
             );
         });
 
-        ui.add_space(16.0);
-
-        // Recording Controls in Header
-        render_recording_controls(ui, recording, chart_mode, palette);
-
-        // System status and Settings Button on Right
+        // System status, Record button, and Settings Button on Right
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Settings Cog Button on far right
+            // 1. Settings Cog Button on far right
             let is_open = *settings_open;
             let bg = if is_open { palette.bar_active } else { palette.card_bg };
             let fg = if is_open { palette.background } else { palette.text_main };
@@ -250,14 +251,21 @@ pub fn render_header(
             )
             .fill(bg)
             .stroke(Stroke::new(1.0_f32, palette.border))
-            .min_size(vec2(26.0, 22.0));
+            .min_size(vec2(26.0, 22.0))
+            .rounding(0.0);
 
             if ui.add(cog_btn).on_hover_text("Settings (⚙)").clicked() {
                 *settings_open = !*settings_open;
             }
 
+            ui.add_space(6.0);
+
+            // 2. Record Button & Controls placed directly next to the Settings option
+            render_recording_controls(ui, recording, chart_mode, palette);
+
             ui.add_space(16.0);
 
+            // 3. Status indicator & System info to the left of the Record button
             // Power Profile
             ui.label(
                 egui::RichText::new(&info.power_profile)

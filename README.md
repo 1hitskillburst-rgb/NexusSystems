@@ -100,9 +100,9 @@ Nexus Systems includes an on-demand, high-resolution **Performance Recording** s
 +---------------------------------------------------------------------------------------------------+
 ```
 
-#### A. Vintage Recording Controls (Header & Toolbar)
-Directly accessible from the main header bar:
-- **`[⏺ START RECORDING]`**: Initializes a fresh recording session, flushes any previous retention buffer, resets the monotonic timeline, and automatically transitions the chart panel into **`● REC GRAPH`** view.
+#### A. Vintage Recording Controls (Top Header next to Settings)
+Directly accessible in the upper right of the main header, positioned immediately beside the **`⚙`** Settings cog:
+- **`[⏺ REC]`**: Compact button next to Settings that initializes a fresh recording session, resets the monotonic timeline, and automatically transitions the chart panel into **`● REC GRAPH`** view.
 - **`[● REC MM:SS.t (N pts)]`**: High-visibility retro recording indicator badge displaying live session elapsed time down to tenths of a second along with total collected data points. Automatically throttles UI paint events to ensure fluid, jitter-free timer rendering.
 - **`[⏹ STOP]`**: Freezes the recorded data at the exact final duration, locking the timeline for in-depth mouse hover review and analysis.
 - **`[⏺ NEW REC]`**: Instantly initiates a subsequent recording cycle, clearing previous data.
@@ -137,13 +137,14 @@ The performance recording engine is engineered to strictly maintain Nexus System
 
 ## ⚙️ Customization & The Settings Cog
 
-Click the **`⚙`** cog button in the upper-right corner of the header to open the system preferences modal:
+Click the **`⚙`** cog button in the upper-right corner of the header (or press **`Esc`** while open) to toggle the system preferences modal. Designed with 100% theme consistency matching the Vintage industrial styling (sharp 0px borders, monospace typography, retro ON/OFF pills, themed separators, and a focus-enhancing backdrop scrim):
 
 | Setting | Options / Description |
 | :--- | :--- |
 | **Telemetry Refresh Rate** | **`500ms (Fast)`** (2 Hz sampling for intense gaming/benchmarks)<br>**`1s (Normal)`** (Default: optimal balance of responsiveness and 0% CPU)<br>**`2s (Eco)`** (0.5 Hz ultra-low resource profile) |
-| **Secondary Cards Visibility** | Selectively toggle individual dashboard cards:<br>• **Storage Volumes (Drives)**<br>• **Top Processes (CPU/RAM)**<br>• **Network Throughput (DL/UL)**<br>• **Cooling & Fan Instrumentation** |
+| **Secondary Cards Visibility** | Selectively toggle individual dashboard cards via retro industrial pills:<br>• **Storage Volumes (Drives)**<br>• **Top Processes (CPU/RAM)**<br>• **Network Throughput (DL/UL)**<br>• **Cooling & Fan Instrumentation** |
 | **Auto-Collapse Unpopulated Cards** | Automatically removes empty sensor slots (e.g. absent fan sensors) with **zero whitespace gaps**—secondary cards dynamically expand to fill available space. |
+| **Active Visual Theme** | Displays the active **Vintage** palette status (Retro-Industrial Ivory `#EAE6DC`, Deep Charcoal `#161616`, and Amber Alert `#FA5411`). |
 | **Reset to Defaults** | Instantly restores all factory dashboard settings with one click. |
 
 *All preferences are automatically serialized to `%APPDATA%\NexusSystems\nexus_settings.json` and restored across sessions.*

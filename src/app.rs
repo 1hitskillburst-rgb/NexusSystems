@@ -28,13 +28,26 @@ pub struct NexusApp {
     chart_view_mode: ChartViewMode,
 }
 
-
 fn apply_theme_to_ctx(ctx: &Context) {
     let palette = ThemePalette::vintage();
     ctx.style_mut(|style| {
         style.visuals.panel_fill = palette.background;
-        style.visuals.window_fill = palette.background;
+        style.visuals.window_fill = palette.card_bg;
         style.visuals.extreme_bg_color = palette.card_bg;
+        style.visuals.window_stroke = egui::Stroke::new(1.5_f32, palette.border);
+        style.visuals.window_rounding = egui::Rounding::ZERO;
+        style.visuals.window_shadow = egui::epaint::Shadow::NONE;
+        style.visuals.menu_rounding = egui::Rounding::ZERO;
+
+        style.visuals.widgets.noninteractive.rounding = egui::Rounding::ZERO;
+        style.visuals.widgets.inactive.rounding = egui::Rounding::ZERO;
+        style.visuals.widgets.hovered.rounding = egui::Rounding::ZERO;
+        style.visuals.widgets.active.rounding = egui::Rounding::ZERO;
+        style.visuals.widgets.open.rounding = egui::Rounding::ZERO;
+
+        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, palette.bar_track);
+        style.visuals.selection.bg_fill = palette.bar_track;
+        style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, palette.border);
     });
 }
 
