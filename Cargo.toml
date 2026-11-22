@@ -1,6 +1,6 @@
 [package]
 name = "nexus_systems"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["1hitskillburst-rgb <1hitskillburst@gmail.com>"]
 description = "NEXUS / SYSTEMS --- PC Control Center (Native Windows Desktop Telemetry Application)"
@@ -21,3 +21,11 @@ windows-sys = { version = "0.52", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Power"
 ] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+

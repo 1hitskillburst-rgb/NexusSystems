@@ -1,0 +1,79 @@
+================================================================================
+                    NEXUS / SYSTEMS — PC Control Center
+                           Version 1.0.0 (x64)
+                   Standalone Consumer Distribution Guide
+================================================================================
+
+Welcome to NEXUS / SYSTEMS — an ultra-lightweight, hardware-accelerated desktop
+PC performance and telemetry dashboard built natively in Rust for Windows.
+
+--------------------------------------------------------------------------------
+1. QUICK START (ZERO INSTALLATION REQUIRED)
+--------------------------------------------------------------------------------
+Nexus Systems is completely portable and requires no installer or background
+services.
+
+To run:
+  1. Simply double-click "NexusSystems.exe".
+  2. The control center window will appear instantly without opening any
+     command prompt or terminal window.
+  3. That's it! All system metrics begin updating in real-time.
+
+To close:
+  Click the [X] window close button or press Alt+F4.
+
+--------------------------------------------------------------------------------
+2. DASHBOARD CONTROLS & FEATURES
+--------------------------------------------------------------------------------
+- Telemetry Cards:
+  * CPU: Real-time load %, clock frequency (GHz), model name, and package telemetry.
+  * GPU: Core load %, temperatures, core clocks, and dedicated VRAM allocation
+         (direct NVIDIA NVML integration with universal graphics fallback).
+  * Memory: Real-time physical RAM usage (GB and %), total capacity, and speed.
+  * 60s History: Rolling real-time dual-trend plot for CPU and GPU activity.
+  * Secondary Cards: Storage Drives, Top Processes, Network Throughput, and
+                     Cooling Fan telemetry.
+
+- System Preferences (Settings Cog ⚙):
+  * Click the ⚙ icon in the top-right header to open preferences.
+  * Refresh Interval: Select between 500ms (High-rate), 1s (Standard), or 2s (Eco).
+  * Secondary Card Toggles: Customize your dashboard by showing or hiding Storage,
+    Processes, Network, or Cooling cards with dynamic layout reflow.
+  * Reset to Defaults: Restores optimal default configurations.
+  * Settings are automatically saved to your user profile:
+    %APPDATA%\NexusSystems\nexus_settings.json
+
+--------------------------------------------------------------------------------
+3. COMMAND-LINE & POWER USER OPTIONS
+--------------------------------------------------------------------------------
+For administrators, scripts, or terminal users, Nexus Systems includes a headless
+telemetry audit mode:
+
+  In PowerShell or Command Prompt:
+    .\NexusSystems.exe --test-telemetry
+
+This attaches directly to your active console session, prints a full snapshot of
+all hardware metrics, and exits immediately without launching the graphical UI.
+
+--------------------------------------------------------------------------------
+4. PRIVACY & RESOURCE GUARANTEE
+--------------------------------------------------------------------------------
+- 100% Local: Zero telemetry or analytics data leaves your machine. No internet
+  connection required, no telemetry pings, and no cloud dependencies.
+- Read-Only: Nexus Systems will never touch or modify your hardware clocks,
+  fan curves, voltages, or power profiles.
+- Ultra-Lightweight: Native Rust binary utilizing under 30 MB of RAM with
+  negligible idle CPU overhead (< 0.2%).
+- No Bloat: No Electron, no Chromium runtime, no NodeJS dependencies.
+
+--------------------------------------------------------------------------------
+5. SYSTEM REQUIREMENTS
+--------------------------------------------------------------------------------
+- Operating System: Windows 10 (64-bit) or Windows 11 (64-bit)
+- Graphics: DirectX 12 or OpenGL 3.3+ compatible GPU
+- Permissions: Standard user account (Administrator privileges NOT required)
+
+================================================================================
+For full documentation, source code, and release notes:
+https://github.com/1hitskillburst-rgb/NexusSystems
+================================================================================
