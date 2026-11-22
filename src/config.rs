@@ -26,8 +26,17 @@ impl Default for AppConfig {
 impl AppConfig {
     pub const CONFIG_FILE: &'static str = "nexus_settings.json";
 
+    pub fn config_dir() -> PathBuf {
+        match std::env::var("APPDATA") {
+            Ok(appdata) if !appdata.trim().is_empty() => {
+                PathBuf::from(appdata).join("NexusSystems")
+            }
+            _ => PathBuf::from("."),
+        }
+    }
+
     pub fn config_path() -> PathBuf {
-        PathBuf::from(Self::CONFIG_FILE)
+        Self::config_dir().join(Self::CONFIG_FILE)
     }
 
     pub fn load_from(path: &Path) -> Option<Self> {
@@ -42,7 +51,23 @@ impl AppConfig {
     }
 
     pub fn load() -> Self {
-        Self::load_from(&Self::config_path()).unwrap_or_default()
+        let appdata_path = Self::config_path();
+        if appdata_path.exists() {
+            if let Some(config) = Self::load_from(&appdata_path) {
+                return config;
+            }
+            return Self::default();
+        }
+
+        // Backward compatibility fallback: check CWD if %APPDATA% file does not exist
+        let cwd_path = Path::new(Self::CONFIG_FILE);
+        if cwd_path.exists() {
+            if let Some(config) = Self::load_from(cwd_path) {
+                return config;
+            }
+        }
+
+        Self::default()
     }
 
     pub fn save_to(&self, target_path: &Path) -> std::io::Result<()> {
@@ -55,11 +80,19 @@ impl AppConfig {
             }
         }
 
+        let tmp_file_name = format!(
+            "{}.tmp",
+            target_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(Self::CONFIG_FILE)
+        );
+
         let tmp_path = match target_path.parent() {
             Some(parent) if !parent.as_os_str().is_empty() => {
-                parent.join("nexus_settings.json.tmp")
+                parent.join(&tmp_file_name)
             }
-            _ => PathBuf::from("nexus_settings.json.tmp"),
+            _ => PathBuf::from(&tmp_file_name),
         };
 
         let write_result = (|| -> std::io::Result<()> {
@@ -93,7 +126,65 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    static CWD_CONFIG_LOCK: Mutex<()> = Mutex::new(());
+    static CONFIG_TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(ref orig) = self.original {
+                std::env::set_var(self.key, orig);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    struct CwdConfigBackupGuard {
+        backup_path: PathBuf,
+        had_file: bool,
+    }
+
+    impl CwdConfigBackupGuard {
+        fn hide() -> Self {
+            let cwd_file = Path::new(AppConfig::CONFIG_FILE);
+            let backup_path = PathBuf::from(format!("{}.test_bak_{}", AppConfig::CONFIG_FILE, std::process::id()));
+            let had_file = cwd_file.exists();
+            if had_file {
+                let _ = fs::rename(cwd_file, &backup_path);
+            }
+            Self { backup_path, had_file }
+        }
+    }
+
+    impl Drop for CwdConfigBackupGuard {
+        fn drop(&mut self) {
+            let cwd_file = Path::new(AppConfig::CONFIG_FILE);
+            if self.had_file {
+                let _ = fs::rename(&self.backup_path, cwd_file);
+            } else if cwd_file.exists() {
+                let _ = fs::remove_file(cwd_file);
+            }
+            let _ = fs::remove_file(&self.backup_path);
+        }
+    }
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -112,6 +203,180 @@ mod tests {
         assert_eq!(config.refresh_interval_ms, 1000);
         assert_eq!(config.window_width, 1200.0);
         assert_eq!(config.window_height, 580.0);
+    }
+
+    #[test]
+    fn test_config_dir_and_path_resolution() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let temp_dir = unique_temp_dir("nexus_test_appdata_res");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        let expected_dir = temp_dir.join("NexusSystems");
+        let expected_path = expected_dir.join("nexus_settings.json");
+
+        assert_eq!(AppConfig::config_dir(), expected_dir);
+        assert_eq!(AppConfig::config_path(), expected_path);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_config_dir_fallback_when_appdata_unset() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _env_guard = EnvGuard::remove("APPDATA");
+
+        assert_eq!(AppConfig::config_dir(), PathBuf::from("."));
+        assert_eq!(AppConfig::config_path(), PathBuf::from(".").join("nexus_settings.json"));
+    }
+
+    #[test]
+    fn test_directory_auto_creation_and_atomic_save_in_appdata() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let temp_dir = unique_temp_dir("nexus_test_autocreate");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        let expected_dir = AppConfig::config_dir();
+        assert!(!expected_dir.exists(), "Target NexusSystems dir should not exist before save");
+
+        let test_config = AppConfig {
+            theme: ThemeMode::Nebula,
+            refresh_interval_ms: 750,
+            window_width: 1350.0,
+            window_height: 650.0,
+        };
+
+        test_config.save();
+
+        assert!(expected_dir.exists(), "NexusSystems dir should have been auto-created");
+        assert!(AppConfig::config_path().exists(), "Configuration file should exist in %APPDATA%");
+        assert!(
+            !expected_dir.join("nexus_settings.json.tmp").exists(),
+            "Temporary file must not linger after save()"
+        );
+
+        let loaded = AppConfig::load();
+        assert_eq!(loaded, test_config);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_from_appdata_precedence_over_cwd() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _cwd_guard = CwdConfigBackupGuard::hide();
+
+        let temp_dir = unique_temp_dir("nexus_test_precedence");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        // Config in %APPDATA%
+        let appdata_config = AppConfig {
+            theme: ThemeMode::Aura,
+            refresh_interval_ms: 400,
+            window_width: 1500.0,
+            window_height: 750.0,
+        };
+        appdata_config.save();
+
+        // Config in CWD
+        let cwd_config = AppConfig {
+            theme: ThemeMode::Terminal,
+            refresh_interval_ms: 2000,
+            window_width: 800.0,
+            window_height: 500.0,
+        };
+        let cwd_path = Path::new(AppConfig::CONFIG_FILE);
+        cwd_config.save_to(cwd_path).unwrap();
+
+        // load() must prioritize %APPDATA%
+        let loaded = AppConfig::load();
+        assert_eq!(loaded, appdata_config);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_backward_compatibility_fallback_to_cwd() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _cwd_guard = CwdConfigBackupGuard::hide();
+
+        let temp_dir = unique_temp_dir("nexus_test_backward_compat");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        // Ensure %APPDATA% file does not exist
+        assert!(!AppConfig::config_path().exists());
+
+        // Put configuration in CWD
+        let cwd_config = AppConfig {
+            theme: ThemeMode::Forge,
+            refresh_interval_ms: 1200,
+            window_width: 1100.0,
+            window_height: 550.0,
+        };
+        let cwd_path = Path::new(AppConfig::CONFIG_FILE);
+        cwd_config.save_to(cwd_path).unwrap();
+
+        // load() should fall back to CWD configuration
+        let loaded = AppConfig::load();
+        assert_eq!(loaded, cwd_config);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_save_and_load_fallback_when_appdata_unset() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _cwd_guard = CwdConfigBackupGuard::hide();
+        let _env_guard = EnvGuard::remove("APPDATA");
+
+        let test_config = AppConfig {
+            theme: ThemeMode::Clearspace,
+            refresh_interval_ms: 1500,
+            window_width: 1280.0,
+            window_height: 720.0,
+        };
+
+        test_config.save();
+
+        let cwd_file = Path::new(AppConfig::CONFIG_FILE);
+        assert!(cwd_file.exists(), "Should save to CWD when APPDATA is unset");
+
+        let loaded = AppConfig::load();
+        assert_eq!(loaded, test_config);
+    }
+
+    #[test]
+    fn test_load_default_when_both_missing() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _cwd_guard = CwdConfigBackupGuard::hide();
+
+        let temp_dir = unique_temp_dir("nexus_test_missing");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        assert!(!AppConfig::config_path().exists());
+        assert!(!Path::new(AppConfig::CONFIG_FILE).exists());
+
+        assert_eq!(AppConfig::load(), AppConfig::default());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_corrupted_appdata_returns_default() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap();
+        let _cwd_guard = CwdConfigBackupGuard::hide();
+
+        let temp_dir = unique_temp_dir("nexus_test_corrupt_appdata");
+        let _env_guard = EnvGuard::set("APPDATA", &temp_dir);
+
+        let config_path = AppConfig::config_path();
+        if let Some(parent) = config_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::write(&config_path, b"{ broken json ...").unwrap();
+
+        assert_eq!(AppConfig::load(), AppConfig::default());
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -196,51 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn test_save_method_persists_and_no_tmp_lingers() {
-        let _guard = CWD_CONFIG_LOCK.lock().unwrap();
-
-        let config_path = AppConfig::config_path();
-        let tmp_path = match config_path.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p.join("nexus_settings.json.tmp"),
-            _ => PathBuf::from("nexus_settings.json.tmp"),
-        };
-
-        // Backup existing config file if present
-        let original_contents = if config_path.exists() {
-            fs::read_to_string(&config_path).ok()
-        } else {
-            None
-        };
-
-        let test_config = AppConfig {
-            theme: ThemeMode::Nebula,
-            refresh_interval_ms: 750,
-            window_width: 1350.0,
-            window_height: 650.0,
-        };
-
-        test_config.save();
-
-        assert!(config_path.exists(), "Saved config file must exist");
-        assert!(
-            !tmp_path.exists(),
-            "Temporary file nexus_settings.json.tmp must not linger after save()"
-        );
-
-        let loaded = AppConfig::load();
-        assert_eq!(loaded, test_config);
-
-        // Restore original contents or clean up
-        if let Some(orig) = original_contents {
-            let _ = fs::write(&config_path, orig);
-        } else {
-            let _ = fs::remove_file(&config_path);
-        }
-        let _ = fs::remove_file(&tmp_path);
-    }
-
-    #[test]
-    fn test_load_nonexistent_returns_default() {
+    fn test_load_from_nonexistent_returns_none() {
         let temp_dir = unique_temp_dir("nexus_test_nonexistent");
         let target_path = temp_dir.join("non_existent_config.json");
 
@@ -249,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_corrupted_json_returns_none() {
+    fn test_load_from_corrupted_json_returns_none() {
         let temp_dir = unique_temp_dir("nexus_test_corrupt");
         let target_path = temp_dir.join("nexus_settings.json");
 
