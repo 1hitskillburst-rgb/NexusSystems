@@ -21,18 +21,19 @@ Engineered from scratch in **pure Rust** with direct GPU hardware acceleration, 
 - **Instant Launch:** Launches in milliseconds.
 - **Microscopic Footprint:** Consumes **under 30 MB of RAM** and **negligible idle CPU (<0.2%)**.
 - **Double-Click Simplicity:** Just double-click `NexusSystems.exe`—no command prompt, no terminal window, and no setup wizard required.
+- **On-Demand Performance Recording:** Integrated high-resolution telemetry recording session with 3-curve graph, interactive mouse hover inspection, and zero-leak discard.
 
 ```
 +---------------------------------------------------------------------------------------------------+
-|  NEXUS  PC Control Center                                   OPTIMAL  1h 24m  09:00:00  BALANCED ⚙ |
+|  NEXUS  PC Control Center       [⏺ START RECORDING]         OPTIMAL  1h 24m  09:00:00  BALANCED ⚙ |
 +------------------------------------+----------------------------------+---------------------------+
 | [ CPU: Core i9-13900K ]            | [ GPU: RTX 4090 ]                | [ RAM: DDR5 6000 MT/s ]   |
 | 14.2%  4.80 GHz  32 Cores  42°C    | 28.5%  52°C  2550 MHz  16/24 GB  | 18.4 / 64.0 GB (28.7%)    |
 | [||||||||                          | [|||||||||||||                   | [|||||||||||||            |
 +------------------------------------+----------------------------------+---------------------------+
-| [ 60s PERFORMANCE HISTORY ]        | [ STORAGE DRIVES ]               | [ NETWORK & LATENCY ]     |
-| CPU (Dark) / GPU (Orange) dual     | C:\ (NVMe) 420/1000 GB (42%)     | DL: 84.5 Mbps  UL: 12.1 M |
-| real-time synchronized graph       | D:\ (Data) 1.2/4.0 TB  (30%)     | Latency: 14 ms (ICMP)     |
+| [ LIVE | ● REC GRAPH ] (01:24 84p) | [ STORAGE DRIVES ]               | [ NETWORK & LATENCY ]     |
+| 3-Curve CPU/GPU/RAM synced plot    | C:\ (NVMe) 420/1000 GB (42%)     | DL: 84.5 Mbps  UL: 12.1 M |
+| Interactive hover pinpoint tooltip | D:\ (Data) 1.2/4.0 TB  (30%)     | Latency: 14 ms (ICMP)     |
 +------------------------------------+----------------------------------+---------------------------+
 | [ TOP ACTIVE PROCESSES ]           | [ COOLING & FAN TELEMETRY ]                                  |
 | System Idle        85.4%     -- MB | CPU Fan: 1,240 RPM [||||||||||                               |
@@ -88,6 +89,49 @@ Nexus Systems is compiled specifically as a native Windows GUI application (`#![
 
 ### 3. Retro-Industrial Segmented Gauges
 All performance stats feature custom segmented LED bar gauges inspired by classic high-end rackmount instruments. Gauges dynamically adjust color thresholds (Green/Ivory -> Amber -> Red Alert) to signal heavy hardware stress.
+
+### 4. Performance Recording & Multi-Curve Telemetry
+Nexus Systems includes an on-demand, high-resolution **Performance Recording** suite designed for benchmarking, gaming stress tests, and hardware diagnostics without requiring heavy third-party logging utilities.
+
+```
++---------------------------------------------------------------------------------------------------+
+|  [⏺ START RECORDING]  -->  [● REC 01:23.4 (84 pts)] [⏹ STOP] [🗑 DISCARD]                          |
+|  [⏹ STOPPED REVIEW]   -->  [RECORDED 02:45.0 (165 pts)] [⏺ NEW REC] [🗑 DISCARD & DONE]            |
++---------------------------------------------------------------------------------------------------+
+```
+
+#### A. Vintage Recording Controls (Header & Toolbar)
+Directly accessible from the main header bar:
+- **`[⏺ START RECORDING]`**: Initializes a fresh recording session, flushes any previous retention buffer, resets the monotonic timeline, and automatically transitions the chart panel into **`● REC GRAPH`** view.
+- **`[● REC MM:SS.t (N pts)]`**: High-visibility retro recording indicator badge displaying live session elapsed time down to tenths of a second along with total collected data points. Automatically throttles UI paint events to ensure fluid, jitter-free timer rendering.
+- **`[⏹ STOP]`**: Freezes the recorded data at the exact final duration, locking the timeline for in-depth mouse hover review and analysis.
+- **`[⏺ NEW REC]`**: Instantly initiates a subsequent recording cycle, clearing previous data.
+- **`[🗑 DISCARD]` / `[🗑 DISCARD & DONE]`**: Immediately purges the recording buffer and reclaims all allocated heap memory (see Discard & Zero Memory Leakage below).
+
+#### B. Synchronized 3-Curve Graph
+The recording graph visualizes the three primary compute metrics synchronized along a unified monotonic time axis:
+- **CPU Load (Dark Chocolate / `palette.chart_line1`):** Primary processor package utilization %.
+- **GPU Load (Warm Amber / `palette.chart_line2`):** Discrete graphics core compute utilization %.
+- **RAM Load (Vintage Green / `palette.positive`):** Physical system memory utilization %.
+- **Guide Grid:** 25%, 50%, and 75% subtle dotted horizontal gridlines provide immediate visual scale.
+- **Time Calibration:** Monotonic bottom axis labels display relative elapsed time (`00:00`, `25%`, `50%`, `75%`, `End`).
+
+#### C. Interactive Mouse Hover Inspection & Floating Tooltip Card
+Hovering your mouse anywhere over the recording graph enables high-precision retrospective telemetry inspection:
+- **Temporal Snapping:** Monotonically resolves the cursor's horizontal position to the exact nearest recorded telemetry snapshot.
+- **Vertical Time Marker:** Renders a clean vertical hairline (`palette.bar_active`) across the chart at the inspected timestamp with an integrated time badge (e.g., `T +01:05.4`).
+- **Synchronized Data Nodes:** Places highlighted indicator dots directly on the CPU, GPU, and RAM curves at the inspected point.
+- **Retro Vintage Telemetry Card:** Pops up an inspection tooltip formatted in the signature industrial monospace style:
+  - **Timestamp:** `T +MM:SS.t`
+  - **CPU:** Utilization %, thermal package temperature (`65°C`), and core clock speed (`4.85 GHz`).
+  - **GPU:** Utilization %, thermal core temperature (`68°C`), and core clock frequency (`2520 MHz`).
+  - **RAM:** Utilization %, memory allocation in gigabytes (`14.2 / 31.9 GB`), and SMBIOS transfer speed (`6,000 MT/s`).
+
+#### D. Lightweight Design & Zero Memory Leakage
+The performance recording engine is engineered to strictly maintain Nexus Systems' microscopic footprint:
+- **Compact In-Memory Footprint:** Each `RecordingPoint` struct requires only ~88 bytes of memory. An intensive 5-minute recording session at 1-second intervals consumes less than **30 KB** of RAM.
+- **Zero Heap Bloat on Discard:** Unlike standard vector deallocations that preserve allocated capacity, clicking **`[🗑 DISCARD]`** or **`[🗑 DISCARD & DONE]`** triggers `samples.shrink_to_fit()`, immediately freeing **100% of heap capacity** back to the allocator. Memory capacity drops to strictly `0 bytes`.
+- **Purely In-Memory / Zero Disk Overhead:** Data is held purely in RAM during active inspection. Discarding leaves zero residual files, zero temporary cache files, and zero disk writes.
 
 ---
 
@@ -170,6 +214,11 @@ This automatically attaches to your active console, outputs a clean summary of a
 
 | Control | Action |
 | :---: | :--- |
+| **`[⏺ START RECORDING]`** | Start new telemetry recording session and switch to recording graph |
+| **`[⏹ STOP]`** | Freeze active recording session for retrospective review |
+| **`[🗑 DISCARD]`** | Immediately purge all recorded data points and release heap memory |
+| **`[LIVE] / [REC GRAPH]`** | Toggle between rolling 60s history and performance recording graph |
+| **Mouse Hover on Chart** | Inspect nearest recorded sample with vertical hairline and vintage tooltip card |
 | **`⚙`** *(Top Right)* | Open or close System Preferences modal |
 | **`Alt + F4`** | Close Nexus Systems |
 | **Window Resize** | Drag any window edge (enforces minimum bounds: 960 × 440 px) |
