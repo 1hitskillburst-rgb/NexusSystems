@@ -83,10 +83,12 @@ fn clean_adapter_name(name: &str) -> String {
     truncate_str(&clean, 12)
 }
 
+#[allow(dead_code)]
 pub fn format_cpu_temp(temp: Option<f32>) -> String {
     temp.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "--°C".to_string())
 }
 
+#[allow(dead_code)]
 pub fn format_cpu_power(power: Option<f32>) -> String {
     power.map(|p| format!("{:.0} W", p)).unwrap_or_else(|| "-- W".to_string())
 }
@@ -146,17 +148,24 @@ pub fn render_cpu_card(
         let top_spacing = ((inner_h - 130.0) * 0.2).clamp(4.0, 16.0);
         ui.add_space(top_spacing);
 
-        // Sub stats
-        let temp_str = format_cpu_temp(cpu.package_temp_c);
-        stat_row(ui, "Package temp", &temp_str, palette);
+        // Sub stats: If real package thermals / power exist, render them;
+        // otherwise render authentic hardware Core / Thread counts to avoid empty "--" rows
+        if let Some(t) = cpu.package_temp_c {
+            stat_row(ui, "Package temp", &format!("{:.0}°C", t), palette);
+        } else {
+            stat_row(ui, "Cores", &format!("{} Cores", cpu.core_count), palette);
+        }
         ui.add_space(stat_spacing);
 
         let clock_str = format!("{:.2} GHz", cpu.clock_speed_ghz.max(2.1));
         stat_row(ui, "Clock speed", &clock_str, palette);
         ui.add_space(stat_spacing);
 
-        let power_str = format_cpu_power(cpu.package_power_w);
-        stat_row(ui, "Package power", &power_str, palette);
+        if let Some(p) = cpu.package_power_w {
+            stat_row(ui, "Package power", &format!("{:.0} W", p), palette);
+        } else {
+            stat_row(ui, "Threads", &format!("{} Threads", cpu.logical_core_count), palette);
+        }
     });
 }
 

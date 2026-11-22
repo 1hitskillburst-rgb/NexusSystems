@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub show_storage: bool,
     pub show_network: bool,
     pub show_processes: bool,
+    pub auto_hide_empty_cards: bool,
 }
 
 impl Default for AppConfig {
@@ -28,6 +29,7 @@ impl Default for AppConfig {
             show_storage: true,
             show_network: true,
             show_processes: true,
+            auto_hide_empty_cards: true,
         }
     }
 }
@@ -233,6 +235,7 @@ mod tests {
             show_storage: false,
             show_network: false,
             show_processes: false,
+            auto_hide_empty_cards: false,
         };
         config.reset_to_defaults();
         assert_eq!(config, AppConfig::default());
@@ -317,6 +320,7 @@ mod tests {
             show_storage: true,
             show_network: false,
             show_processes: true,
+            auto_hide_empty_cards: true,
         };
 
         test_config.save();
@@ -352,6 +356,7 @@ mod tests {
             show_storage: true,
             show_network: true,
             show_processes: true,
+            auto_hide_empty_cards: true,
         };
         appdata_config.save();
 
@@ -365,6 +370,7 @@ mod tests {
             show_storage: false,
             show_network: false,
             show_processes: false,
+            auto_hide_empty_cards: true,
         };
         let cwd_path = Path::new(AppConfig::CONFIG_FILE);
         cwd_config.save_to(cwd_path).unwrap();
@@ -397,6 +403,7 @@ mod tests {
             show_storage: true,
             show_network: false,
             show_processes: true,
+            auto_hide_empty_cards: true,
         };
         let cwd_path = Path::new(AppConfig::CONFIG_FILE);
         cwd_config.save_to(cwd_path).unwrap();
@@ -423,6 +430,7 @@ mod tests {
             show_storage: false,
             show_network: true,
             show_processes: false,
+            auto_hide_empty_cards: true,
         };
 
         test_config.save();
@@ -484,6 +492,7 @@ mod tests {
             show_storage: true,
             show_network: true,
             show_processes: false,
+            auto_hide_empty_cards: true,
         };
 
         let result = config.save_to(&target_path);
@@ -516,6 +525,7 @@ mod tests {
             show_storage: true,
             show_network: true,
             show_processes: true,
+            auto_hide_empty_cards: true,
         };
         initial_config.save_to(&target_path).unwrap();
         assert_eq!(AppConfig::load_from(&target_path), Some(initial_config));
@@ -529,6 +539,7 @@ mod tests {
             show_storage: false,
             show_network: false,
             show_processes: false,
+            auto_hide_empty_cards: false,
         };
         updated_config.save_to(&target_path).unwrap();
 

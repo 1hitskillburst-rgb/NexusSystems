@@ -145,6 +145,13 @@ pub struct CoolingSnapshot {
     pub case_fan_rpm: Option<u32>,
 }
 
+impl CoolingSnapshot {
+    /// Returns true if at least one fan tachometer sensor returned a reading.
+    pub fn has_data(&self) -> bool {
+        self.cpu_fan_rpm.is_some() || self.gpu_fan_rpm.is_some() || self.case_fan_rpm.is_some()
+    }
+}
+
 impl Default for CoolingSnapshot {
     fn default() -> Self {
         Self {

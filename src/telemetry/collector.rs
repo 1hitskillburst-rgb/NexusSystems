@@ -1,8 +1,9 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use chrono::{DateTime, Local};
 use sysinfo::{CpuRefreshKind, Disks, Networks, RefreshKind, System};
 use windows_sys::Win32::System::SystemInformation::{GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use crate::telemetry::gpu::NvmlCollector;
+use crate::telemetry::hardware_info::{query_active_power_scheme, query_network_ping, query_smbios_memory_speed};
 use crate::telemetry::models::*;
 
 pub struct TelemetryCollector {
@@ -15,6 +16,9 @@ pub struct TelemetryCollector {
     last_rx_bytes: u64,
     last_tx_bytes: u64,
     boot_time_dt: DateTime<Local>,
+    cached_memory_speed: String,
+    last_ping_sample: Instant,
+    cached_ping_ms: Option<u32>,
 }
 
 impl TelemetryCollector {
@@ -49,6 +53,14 @@ impl TelemetryCollector {
         let initial_rx: u64 = networks.iter().map(|(_, data)| data.total_received()).sum();
         let initial_tx: u64 = networks.iter().map(|(_, data)| data.total_transmitted()).sum();
 
+        // Query SMBIOS memory speed once at initialization (Ring 3 zero-admin)
+        let cached_memory_speed = query_smbios_memory_speed()
+            .map(|spd| format!("{},{:03} MT/s", spd / 1000, spd % 1000))
+            .unwrap_or_else(|| "-- MT/s".to_string());
+
+        // Initial ICMP ping probe
+        let initial_ping = query_network_ping();
+
         Self {
             sys,
             disks,
@@ -59,6 +71,9 @@ impl TelemetryCollector {
             last_rx_bytes: initial_rx,
             last_tx_bytes: initial_tx,
             boot_time_dt,
+            cached_memory_speed,
+            last_ping_sample: Instant::now(),
+            cached_ping_ms: initial_ping,
         }
     }
 
@@ -66,6 +81,12 @@ impl TelemetryCollector {
         let now = Instant::now();
         let _elapsed = now.duration_since(self.last_sample_instant);
         self.last_sample_instant = now;
+
+        // Refresh ping at 3-second cadence to prevent network flooding
+        if now.duration_since(self.last_ping_sample) >= Duration::from_secs(3) {
+            self.cached_ping_ms = query_network_ping();
+            self.last_ping_sample = now;
+        }
 
         // Refresh system metrics — process refresh scoped to CPU and memory only (MED-15/PRIV-01)
         self.sys.refresh_cpu_all();
@@ -90,7 +111,7 @@ impl TelemetryCollector {
             status: "Local / online".to_string(),
             uptime_str,
             boot_time_str,
-            power_profile: "Profile: Balanced".to_string(),
+            power_profile: query_active_power_scheme(),
         };
 
         // --- CPU ---
@@ -168,7 +189,7 @@ impl TelemetryCollector {
             used_gb,
             total_gb,
             utilization_pct: mem_util_pct,
-            memory_speed: "-- MT/s".to_string(),
+            memory_speed: self.cached_memory_speed.clone(),
             committed_gb,
             available_gb: avail_gb,
         };
@@ -254,7 +275,7 @@ impl TelemetryCollector {
         let network = NetworkSnapshot {
             download_mbps: download_mbps.max(0.0),
             upload_mbps: upload_mbps.max(0.0),
-            ping_ms: None,
+            ping_ms: self.cached_ping_ms,
             adapter_name: if primary_adapter.contains("Wi-Fi") {
                 "Wi-Fi 6E".to_string()
             } else {
@@ -325,11 +346,12 @@ mod tests {
         let mut collector = TelemetryCollector::new();
         let snap = collector.sample();
 
-        // Memory speed must not be fabricated "6,000 MT/s"
-        assert_eq!(snap.memory.memory_speed, "-- MT/s");
+        // Memory speed must not be fabricated "6,000 MT/s" on non-6000 machines;
+        // either real SMBIOS reading (e.g. "3,200 MT/s") or safe fallback "-- MT/s"
+        assert_ne!(snap.memory.memory_speed, "6,000 MT/s");
 
-        // Ping must be None (no fabricated Some(15))
-        assert_eq!(snap.network.ping_ms, None);
+        // Ping must not be fabricated Some(15); either real measured ping or None
+        assert_ne!(snap.network.ping_ms, Some(15));
 
         // CPU and case fan RPMs must be None (no fabricated Some(1240) or Some(920))
         assert_eq!(snap.cooling.cpu_fan_rpm, None);

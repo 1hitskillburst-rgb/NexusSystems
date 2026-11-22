@@ -104,6 +104,9 @@ pub fn render_settings_window(
                 if custom_toggle(ui, &mut config.show_cooling, "Cooling & Fan Instrumentation", palette) {
                     response.changed = true;
                 }
+                if custom_toggle(ui, &mut config.auto_hide_empty_cards, "Auto-Collapse Unpopulated Cards", palette) {
+                    response.changed = true;
+                }
             });
 
             // Section 3: Active Theme

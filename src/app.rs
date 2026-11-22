@@ -162,7 +162,8 @@ impl eframe::App for NexusApp {
                 let show_storage = self.config.show_storage;
                 let show_processes = self.config.show_processes;
                 let show_network = self.config.show_network;
-                let show_cooling = self.config.show_cooling;
+                let cooling_has_data = self.snapshot.cooling.has_data();
+                let show_cooling = self.config.show_cooling && (!self.config.auto_hide_empty_cards || cooling_has_data);
                 let has_row2 = show_storage || show_processes || show_network || show_cooling;
 
                 // Dynamic row height: allocate half height if secondary row exists, else full height
@@ -189,7 +190,7 @@ impl eframe::App for NexusApp {
                     draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
                 });
 
-                // Row 2: Secondary Metrics (Configurable Visibility)
+                // Row 2: Secondary Metrics (Configurable Visibility & Smart Auto-Collapse)
                 if has_row2 {
                     ui.add_space(row_gap);
                     let row2_h = ui.available_height().max(150.0);
@@ -214,6 +215,22 @@ impl eframe::App for NexusApp {
                             ui.add_space(col_gap);
 
                             render_cooling_card(ui, &self.snapshot.cooling, &palette, chart_w, row2_h);
+                        });
+                    } else if visible_count == 3 && show_storage && show_processes && show_network {
+                        // 3 primary cards visible (Storage, Processes, Network - Cooling collapsed):
+                        // Storage in Col 1 (col_w), Top Processes spans Col 2+3 (col_w * 2.0 + col_gap), Network in Col 4 (chart_w)
+                        // Every vertical column edge matches Row 1 exactly with ZERO blank whitespace squares!
+                        let procs_w = col_w * 2.0 + col_gap;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+
+                            render_storage_card(ui, &self.snapshot.drives, &palette, col_w, row2_h);
+                            ui.add_space(col_gap);
+
+                            render_processes_card(ui, &self.snapshot.processes, &palette, procs_w, row2_h);
+                            ui.add_space(col_gap);
+
+                            render_network_card(ui, &self.snapshot.network, &palette, chart_w, row2_h);
                         });
                     } else {
                         // Dynamic distribution across visible secondary cards
