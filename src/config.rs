@@ -5,11 +5,16 @@ use serde::{Deserialize, Serialize};
 use crate::theme::ThemeMode;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub theme: ThemeMode,
     pub refresh_interval_ms: u64,
     pub window_width: f32,
     pub window_height: f32,
+    pub show_cooling: bool,
+    pub show_storage: bool,
+    pub show_network: bool,
+    pub show_processes: bool,
 }
 
 impl Default for AppConfig {
@@ -19,6 +24,10 @@ impl Default for AppConfig {
             refresh_interval_ms: 1000,
             window_width: 1200.0,
             window_height: 580.0,
+            show_cooling: true,
+            show_storage: true,
+            show_network: true,
+            show_processes: true,
         }
     }
 }
@@ -37,6 +46,10 @@ impl AppConfig {
 
     pub fn config_path() -> PathBuf {
         Self::config_dir().join(Self::CONFIG_FILE)
+    }
+
+    pub fn reset_to_defaults(&mut self) {
+        *self = Self::default();
     }
 
     pub fn load_from(path: &Path) -> Option<Self> {
@@ -203,6 +216,63 @@ mod tests {
         assert_eq!(config.refresh_interval_ms, 1000);
         assert_eq!(config.window_width, 1200.0);
         assert_eq!(config.window_height, 580.0);
+        assert!(config.show_cooling);
+        assert!(config.show_storage);
+        assert!(config.show_network);
+        assert!(config.show_processes);
+    }
+
+    #[test]
+    fn test_reset_to_defaults() {
+        let mut config = AppConfig {
+            theme: ThemeMode::Vintage,
+            refresh_interval_ms: 500,
+            window_width: 800.0,
+            window_height: 400.0,
+            show_cooling: false,
+            show_storage: false,
+            show_network: false,
+            show_processes: false,
+        };
+        config.reset_to_defaults();
+        assert_eq!(config, AppConfig::default());
+    }
+
+    #[test]
+    fn test_backward_compatibility_loading_legacy_configs() {
+        // Legacy JSON format from previous versions with old theme variants and no secondary visibility fields
+        let legacy_json = r#"{
+            "theme": "Nebula",
+            "refresh_interval_ms": 2000,
+            "window_width": 1400.0,
+            "window_height": 700.0
+        }"#;
+
+        let parsed: AppConfig = serde_json::from_str(legacy_json).expect("Should deserialize legacy JSON");
+        assert_eq!(parsed.theme, ThemeMode::Vintage, "Legacy theme must default to Vintage");
+        assert_eq!(parsed.refresh_interval_ms, 2000);
+        assert_eq!(parsed.window_width, 1400.0);
+        assert_eq!(parsed.window_height, 700.0);
+        assert!(parsed.show_cooling, "Missing secondary fields must default to true");
+        assert!(parsed.show_storage, "Missing secondary fields must default to true");
+        assert!(parsed.show_network, "Missing secondary fields must default to true");
+        assert!(parsed.show_processes, "Missing secondary fields must default to true");
+    }
+
+    #[test]
+    fn test_backward_compatibility_partial_and_empty_json() {
+        let empty_json = "{}";
+        let parsed: AppConfig = serde_json::from_str(empty_json).expect("Empty JSON must default all fields");
+        assert_eq!(parsed, AppConfig::default());
+
+        let partial_json = r#"{"refresh_interval_ms": 500, "show_cooling": false}"#;
+        let parsed_partial: AppConfig = serde_json::from_str(partial_json).expect("Partial JSON must deserialize");
+        assert_eq!(parsed_partial.refresh_interval_ms, 500);
+        assert!(!parsed_partial.show_cooling);
+        assert!(parsed_partial.show_storage);
+        assert!(parsed_partial.show_network);
+        assert!(parsed_partial.show_processes);
+        assert_eq!(parsed_partial.theme, ThemeMode::Vintage);
     }
 
     #[test]
@@ -239,10 +309,14 @@ mod tests {
         assert!(!expected_dir.exists(), "Target NexusSystems dir should not exist before save");
 
         let test_config = AppConfig {
-            theme: ThemeMode::Nebula,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 750,
             window_width: 1350.0,
             window_height: 650.0,
+            show_cooling: false,
+            show_storage: true,
+            show_network: false,
+            show_processes: true,
         };
 
         test_config.save();
@@ -270,19 +344,27 @@ mod tests {
 
         // Config in %APPDATA%
         let appdata_config = AppConfig {
-            theme: ThemeMode::Aura,
-            refresh_interval_ms: 400,
+            theme: ThemeMode::Vintage,
+            refresh_interval_ms: 500,
             window_width: 1500.0,
             window_height: 750.0,
+            show_cooling: false,
+            show_storage: true,
+            show_network: true,
+            show_processes: true,
         };
         appdata_config.save();
 
         // Config in CWD
         let cwd_config = AppConfig {
-            theme: ThemeMode::Terminal,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 2000,
             window_width: 800.0,
             window_height: 500.0,
+            show_cooling: true,
+            show_storage: false,
+            show_network: false,
+            show_processes: false,
         };
         let cwd_path = Path::new(AppConfig::CONFIG_FILE);
         cwd_config.save_to(cwd_path).unwrap();
@@ -307,10 +389,14 @@ mod tests {
 
         // Put configuration in CWD
         let cwd_config = AppConfig {
-            theme: ThemeMode::Forge,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 1200,
             window_width: 1100.0,
             window_height: 550.0,
+            show_cooling: true,
+            show_storage: true,
+            show_network: false,
+            show_processes: true,
         };
         let cwd_path = Path::new(AppConfig::CONFIG_FILE);
         cwd_config.save_to(cwd_path).unwrap();
@@ -329,10 +415,14 @@ mod tests {
         let _env_guard = EnvGuard::remove("APPDATA");
 
         let test_config = AppConfig {
-            theme: ThemeMode::Clearspace,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 1500,
             window_width: 1280.0,
             window_height: 720.0,
+            show_cooling: true,
+            show_storage: false,
+            show_network: true,
+            show_processes: false,
         };
 
         test_config.save();
@@ -386,10 +476,14 @@ mod tests {
         let tmp_path = temp_dir.join("nexus_settings.json.tmp");
 
         let config = AppConfig {
-            theme: ThemeMode::Forge,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 500,
             window_width: 1400.0,
             window_height: 700.0,
+            show_cooling: false,
+            show_storage: true,
+            show_network: true,
+            show_processes: false,
         };
 
         let result = config.save_to(&target_path);
@@ -414,19 +508,27 @@ mod tests {
         let tmp_path = temp_dir.join("nexus_settings.json.tmp");
 
         let initial_config = AppConfig {
-            theme: ThemeMode::Clearspace,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 2000,
             window_width: 1000.0,
             window_height: 600.0,
+            show_cooling: true,
+            show_storage: true,
+            show_network: true,
+            show_processes: true,
         };
         initial_config.save_to(&target_path).unwrap();
         assert_eq!(AppConfig::load_from(&target_path), Some(initial_config));
 
         let updated_config = AppConfig {
-            theme: ThemeMode::Terminal,
+            theme: ThemeMode::Vintage,
             refresh_interval_ms: 250,
             window_width: 1600.0,
             window_height: 900.0,
+            show_cooling: false,
+            show_storage: false,
+            show_network: false,
+            show_processes: false,
         };
         updated_config.save_to(&target_path).unwrap();
 

@@ -1,16 +1,17 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use egui::{Context, Key};
+use egui::Context;
 use crate::config::AppConfig;
 use crate::telemetry::models::{HistoryPoint, SystemSnapshot};
 use crate::telemetry::TelemetryCollector;
-use crate::theme::{ThemeMode, ThemePalette};
+use crate::theme::ThemePalette;
 use crate::ui::cards::*;
 use crate::ui::chart::draw_history_chart;
 use crate::ui::header::render_header;
+use crate::ui::settings::render_settings_window;
 
 pub struct NexusApp {
     config: AppConfig,
@@ -18,11 +19,13 @@ pub struct NexusApp {
     history: Vec<HistoryPoint>,
     rx: Receiver<SystemSnapshot>,
     running: Arc<AtomicBool>,
+    refresh_interval: Arc<AtomicU64>,
     worker_handle: Option<JoinHandle<()>>,
+    settings_open: bool,
 }
 
-fn apply_theme_to_ctx(ctx: &Context, mode: ThemeMode) {
-    let palette = ThemePalette::for_mode(mode);
+fn apply_theme_to_ctx(ctx: &Context) {
+    let palette = ThemePalette::vintage();
     ctx.style_mut(|style| {
         style.visuals.panel_fill = palette.background;
         style.visuals.window_fill = palette.background;
@@ -40,25 +43,29 @@ impl NexusApp {
         let (tx, rx) = channel::<SystemSnapshot>();
 
         // Apply theme to context once at creation time
-        apply_theme_to_ctx(&egui_ctx, config.theme);
+        apply_theme_to_ctx(&egui_ctx);
 
         // Initial sample
         let mut initial_collector = TelemetryCollector::new();
         let initial_snapshot = initial_collector.sample();
 
-        // Spawn background telemetry sampler thread and request repaint on each new sample
         let running = Arc::new(AtomicBool::new(true));
         let is_running = Arc::clone(&running);
+        let refresh_interval = Arc::new(AtomicU64::new(config.refresh_interval_ms));
+        let interval_clone = Arc::clone(&refresh_interval);
+
         let ctx = egui_ctx.clone();
         let worker_handle = thread::spawn(move || {
             let mut collector = initial_collector;
             while is_running.load(Ordering::Relaxed) {
-                // Sleep in slices (10 x 100ms = 1000ms) to allow prompt termination on shutdown
-                for _ in 0..10 {
+                // Sleep in dynamic 50ms slices to allow prompt termination and responsive rate changes
+                let target_ms = interval_clone.load(Ordering::Relaxed).max(100);
+                let slices = (target_ms / 50).max(1);
+                for _ in 0..slices {
                     if !is_running.load(Ordering::Relaxed) {
                         return;
                     }
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_millis(50));
                 }
                 if !is_running.load(Ordering::Relaxed) {
                     break;
@@ -90,14 +97,16 @@ impl NexusApp {
             history,
             rx,
             running,
+            refresh_interval,
             worker_handle: Some(worker_handle),
+            settings_open: false,
         }
     }
 }
 
 impl eframe::App for NexusApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        let palette = ThemePalette::for_mode(self.config.theme);
+        let palette = ThemePalette::vintage();
         palette.background.to_normalized_gamma_f32()
     }
 
@@ -109,30 +118,6 @@ impl eframe::App for NexusApp {
     }
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // Handle theme switching keyboard shortcuts 1..6
-        let mut theme_changed = false;
-        ctx.input(|i| {
-            if i.key_pressed(Key::Num1) {
-                self.config.theme = ThemeMode::Vintage;
-                theme_changed = true;
-            } else if i.key_pressed(Key::Num2) {
-                self.config.theme = ThemeMode::Nebula;
-                theme_changed = true;
-            } else if i.key_pressed(Key::Num3) {
-                self.config.theme = ThemeMode::Clearspace;
-                theme_changed = true;
-            } else if i.key_pressed(Key::Num4) {
-                self.config.theme = ThemeMode::Forge;
-                theme_changed = true;
-            } else if i.key_pressed(Key::Num5) {
-                self.config.theme = ThemeMode::Terminal;
-                theme_changed = true;
-            } else if i.key_pressed(Key::Num6) {
-                self.config.theme = ThemeMode::Aura;
-                theme_changed = true;
-            }
-        });
-
         // Drain telemetry updates from worker thread
         let mut received_new = false;
         while let Ok(new_snap) = self.rx.try_recv() {
@@ -154,7 +139,7 @@ impl eframe::App for NexusApp {
             }
         }
 
-        let palette = ThemePalette::for_mode(self.config.theme);
+        let palette = ThemePalette::vintage();
 
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(palette.background).inner_margin(16.0))
@@ -164,19 +149,8 @@ impl eframe::App for NexusApp {
                     return;
                 }
 
-                let prev_theme = self.config.theme;
-
-                // Header
-                render_header(ui, &self.snapshot.info, &mut self.config.theme, &palette);
-
-                if self.config.theme != prev_theme {
-                    theme_changed = true;
-                }
-
-                if theme_changed {
-                    self.config.save();
-                    apply_theme_to_ctx(ctx, self.config.theme);
-                }
+                // Header with Settings Cog Button
+                render_header(ui, &self.snapshot.info, &palette, &mut self.settings_open);
 
                 let col_gap = 10.0;
                 let row_gap = 12.0;
@@ -185,10 +159,21 @@ impl eframe::App for NexusApp {
                 let available_w = ui.available_width();
                 let available_h = ui.available_height();
 
-                // Dynamic row height: allocate half the available height to row 1
-                let row1_h = ((available_h - row_gap) * 0.5).max(150.0);
+                let show_storage = self.config.show_storage;
+                let show_processes = self.config.show_processes;
+                let show_network = self.config.show_network;
+                let show_cooling = self.config.show_cooling;
+                let has_row2 = show_storage || show_processes || show_network || show_cooling;
+
+                // Dynamic row height: allocate half height if secondary row exists, else full height
+                let row1_h = if has_row2 {
+                    ((available_h - row_gap) * 0.5).max(150.0)
+                } else {
+                    available_h.max(150.0)
+                };
                 let (col_w, chart_w) = calculate_grid_columns(available_w, col_gap);
 
+                // Row 1: Primary Metrics
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
 
@@ -204,29 +189,74 @@ impl eframe::App for NexusApp {
                     draw_history_chart(ui, &self.history, &palette, chart_w, row1_h);
                 });
 
-                ui.add_space(row_gap);
+                // Row 2: Secondary Metrics (Configurable Visibility)
+                if has_row2 {
+                    ui.add_space(row_gap);
+                    let row2_h = ui.available_height().max(150.0);
 
-                let row2_h = ui.available_height().max(150.0);
-                let col4_w = chart_w;
+                    let visible_count = (show_storage as usize)
+                        + (show_processes as usize)
+                        + (show_network as usize)
+                        + (show_cooling as usize);
 
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
+                    if visible_count == 4 {
+                        // 4 cards visible: maintain aligned 4-column geometry with Row 1
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
 
-                    render_storage_card(ui, &self.snapshot.drives, &palette, col_w, row2_h);
-                    ui.add_space(col_gap);
+                            render_storage_card(ui, &self.snapshot.drives, &palette, col_w, row2_h);
+                            ui.add_space(col_gap);
 
-                    render_processes_card(ui, &self.snapshot.processes, &palette, col_w, row2_h);
-                    ui.add_space(col_gap);
+                            render_processes_card(ui, &self.snapshot.processes, &palette, col_w, row2_h);
+                            ui.add_space(col_gap);
 
-                    render_network_card(ui, &self.snapshot.network, &palette, col_w, row2_h);
-                    ui.add_space(col_gap);
+                            render_network_card(ui, &self.snapshot.network, &palette, col_w, row2_h);
+                            ui.add_space(col_gap);
 
-                    render_cooling_card(ui, &self.snapshot.cooling, &palette, col4_w, row2_h);
-                });
+                            render_cooling_card(ui, &self.snapshot.cooling, &palette, chart_w, row2_h);
+                        });
+                    } else {
+                        // Dynamic distribution across visible secondary cards
+                        let total_gaps = col_gap * ((visible_count - 1) as f32);
+                        let dynamic_w = ((available_w - total_gaps) / (visible_count as f32)).max(100.0);
+
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            let mut first = true;
+
+                            if show_storage {
+                                if !first { ui.add_space(col_gap); }
+                                first = false;
+                                render_storage_card(ui, &self.snapshot.drives, &palette, dynamic_w, row2_h);
+                            }
+                            if show_processes {
+                                if !first { ui.add_space(col_gap); }
+                                first = false;
+                                render_processes_card(ui, &self.snapshot.processes, &palette, dynamic_w, row2_h);
+                            }
+                            if show_network {
+                                if !first { ui.add_space(col_gap); }
+                                first = false;
+                                render_network_card(ui, &self.snapshot.network, &palette, dynamic_w, row2_h);
+                            }
+                            if show_cooling {
+                                if !first { ui.add_space(col_gap); }
+                                render_cooling_card(ui, &self.snapshot.cooling, &palette, dynamic_w, row2_h);
+                            }
+                        });
+                    }
+                }
             });
 
-        // Repaint periodically for telemetry and time updates (every 1 second)
-        ctx.request_repaint_after(Duration::from_millis(1000));
+        // Settings Modal Component
+        let settings_res = render_settings_window(ctx, &mut self.settings_open, &mut self.config, &palette);
+        if settings_res.changed {
+            self.refresh_interval.store(self.config.refresh_interval_ms, Ordering::Relaxed);
+            self.config.save();
+        }
+
+        // Repaint periodically for telemetry and time updates
+        ctx.request_repaint_after(Duration::from_millis(self.config.refresh_interval_ms.min(1000)));
     }
 }
 
@@ -330,6 +360,12 @@ mod tests {
     }
 
     #[test]
+    fn test_app_settings_initial_state() {
+        let app = create_test_app();
+        assert!(!app.settings_open);
+    }
+
+    #[test]
     fn test_grid_column_widths_alignment_across_rows() {
         let col_gap = 10.0;
         let test_widths = [400.0, 800.0, 960.0, 1188.0, 1220.0, 1920.0];
@@ -380,4 +416,3 @@ mod tests {
         assert_eq!(col4_w_neg, 100.0);
     }
 }
-

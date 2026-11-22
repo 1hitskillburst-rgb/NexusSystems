@@ -1,12 +1,12 @@
 use egui::{vec2, Stroke, Ui};
 use crate::telemetry::models::SystemInfoSnapshot;
-use crate::theme::{ThemeMode, ThemePalette};
+use crate::theme::ThemePalette;
 
 pub fn render_header(
     ui: &mut Ui,
     info: &SystemInfoSnapshot,
-    current_theme: &mut ThemeMode,
     palette: &ThemePalette,
+    settings_open: &mut bool,
 ) {
     ui.horizontal(|ui| {
         // Branding on Left
@@ -25,30 +25,25 @@ pub fn render_header(
             );
         });
 
-        // System status and Theme Selector on Right
+        // System status and Settings Button on Right
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Theme selection pills
-            ui.horizontal(|ui| {
-                for (idx, &mode) in ThemeMode::all().iter().enumerate() {
-                    let num = idx + 1;
-                    let is_active = *current_theme == mode;
-                    let bg = if is_active { palette.bar_active } else { palette.card_bg };
-                    let fg = if is_active { palette.background } else { palette.text_main };
+            // Settings Cog Button on far right
+            let is_open = *settings_open;
+            let bg = if is_open { palette.bar_active } else { palette.card_bg };
+            let fg = if is_open { palette.background } else { palette.text_main };
 
-                    let btn = egui::Button::new(
-                        egui::RichText::new(format!("{num}"))
-                            .font(egui::FontId::monospace(10.0))
-                            .color(fg),
-                    )
-                    .fill(bg)
-                    .stroke(Stroke::new(1.0_f32, palette.border))
-                    .min_size(vec2(20.0, 18.0));
+            let cog_btn = egui::Button::new(
+                egui::RichText::new("⚙")
+                    .font(egui::FontId::monospace(13.0))
+                    .color(fg),
+            )
+            .fill(bg)
+            .stroke(Stroke::new(1.0_f32, palette.border))
+            .min_size(vec2(26.0, 22.0));
 
-                    if ui.add(btn).on_hover_text(mode.name()).clicked() {
-                        *current_theme = mode;
-                    }
-                }
-            });
+            if ui.add(cog_btn).on_hover_text("Settings (⚙)").clicked() {
+                *settings_open = !*settings_open;
+            }
 
             ui.add_space(16.0);
 
@@ -87,4 +82,29 @@ pub fn render_header(
             );
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_header_toggle_cog() {
+        let palette = ThemePalette::vintage();
+        let info = SystemInfoSnapshot {
+            status: "OPTIMAL".into(),
+            uptime_str: "1h 23m".into(),
+            boot_time_str: "09:00:00".into(),
+            power_profile: "BALANCED".into(),
+        };
+        let mut settings_open = false;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_header(ui, &info, &palette, &mut settings_open);
+            });
+        });
+        assert!(!settings_open);
+    }
 }

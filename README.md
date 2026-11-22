@@ -36,20 +36,21 @@ All metrics feature custom segmented LED bar gauges inspired by precision hardwa
 
 ---
 
-## 🎨 Visual Themes
+## 🎨 Visual Aesthetic & Settings
 
-Switch themes instantly with number keys **`1`** through **`6`** or by clicking the theme selector pills in the header:
+Nexus Systems features a signature **Vintage** retro-industrial aesthetic:
+- **Ivory Chassis Background:** `#EAE6DC`
+- **Crisp Dark Borders:** `#282828`
+- **High-Visibility Segmented LED Gauges:** Vivid orange `#FA5816` / `#FA5411`
+- **Contrasting Hardware Plots:** Solid black CPU and vibrant orange GPU performance tracking
 
-| Key | Theme | Aesthetic |
-| :---: | :--- | :--- |
-| **`1`** | **Vintage** *(Default)* | Retro-industrial ivory (`#EAE6DC`), crisp black borders, vivid orange segmented LED bars |
-| **`2`** | **Nebula** | Futuristic deep navy gaming aesthetic (`#090A12`) with violet and neon cyan accents |
-| **`3`** | **Clearspace** | Clean, minimalist light slate (`#E9EEF4`) designed for bright work environments |
-| **`4`** | **Forge** | Rugged industrial amber (`#15100B`) inspired by avionics and test-bench hardware |
-| **`5`** | **Terminal** | Classic retro hacker green phosphor display (`#07110D`) |
-| **`6`** | **Aura** | Atmospheric plum-violet (`#140E18`) with soft pink accents |
+### ⚙️ Settings Configuration
+Click the **`⚙`** cog button in the upper-right header to access system preferences:
+- **Telemetry Refresh Rate:** Configurable between `500ms` (Fast / 2 Hz), `1s` (Normal / Default), or `2s` (Eco / 0.5 Hz) sampling intervals.
+- **Secondary Cards Visibility:** Selectively toggle secondary dashboards (Storage Drives, Top Processes, Network Throughput, Cooling & Fans) with responsive layout reflow.
+- **Reset to Defaults:** Instantly restore default dashboard preferences.
 
-*Your selected theme is automatically saved to `nexus_settings.json` and restored whenever the app launches.*
+*Preferences are automatically saved to `nexus_settings.json` in `%APPDATA%\NexusSystems` and restored on startup.*
 
 ---
 
@@ -91,16 +92,11 @@ cargo run -- --test-telemetry
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## ⚙️ Control Shortcuts & Navigation
 
-| Shortcut | Action |
+| Control | Action |
 | :---: | :--- |
-| **`1`** | Switch to **Vintage** theme |
-| **`2`** | Switch to **Nebula** theme |
-| **`3`** | Switch to **Clearspace** theme |
-| **`4`** | Switch to **Forge** theme |
-| **`5`** | Switch to **Terminal** theme |
-| **`6`** | Switch to **Aura** theme |
+| **`⚙`** *(Header)* | Open / Close System Preferences modal |
 
 ---
 
