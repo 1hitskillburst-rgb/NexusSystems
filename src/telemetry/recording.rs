@@ -634,4 +634,52 @@ mod tests {
         assert_eq!(session.gpu_range(), (30.0, 90.0));
         assert_eq!(session.ram_range(), (45.0, 60.0));
     }
+
+    #[test]
+    fn test_multicycle_recording_lifecycle_and_zero_memory_leakage() {
+        let mut session = PerformanceRecordingSession::new();
+        assert_eq!(session.samples.capacity(), 0);
+
+        // Cycle 1: 500 samples
+        session.start();
+        for i in 0..500 {
+            let snap = make_test_snapshot(1_000_000 + i * 500, 10.0 + (i % 80) as f32, 20.0, 30.0);
+            session.add_sample(&snap);
+        }
+        assert_eq!(session.sample_count(), 500);
+        assert!(session.samples.capacity() >= 500);
+        session.stop();
+        assert!(session.is_stopped());
+        assert!((session.duration_secs() - 249.5).abs() < 0.001);
+
+        // Discard: immediate deallocation
+        session.discard();
+        assert_eq!(session.sample_count(), 0);
+        assert_eq!(session.samples.capacity(), 0, "Capacity must be reset to 0 upon discard");
+        assert_eq!(session.state(), RecordingState::Idle);
+
+        // Cycle 2: 1,000 samples
+        session.start();
+        for i in 0..1000 {
+            let snap = make_test_snapshot(2_000_000 + i * 250, 50.0, 60.0, 70.0);
+            session.add_sample(&snap);
+        }
+        assert_eq!(session.sample_count(), 1000);
+        assert!(session.samples.capacity() >= 1000);
+
+        // Re-starting without stopping first must also cleanly reclaim old allocation
+        session.start();
+        assert_eq!(session.sample_count(), 0);
+        assert_eq!(session.samples.capacity(), 0, "Restarting must flush old samples and reclaim heap memory");
+        assert_eq!(session.state(), RecordingState::Recording);
+
+        // Cycle 3: quick record then discard
+        let snap = make_test_snapshot(3_000_000, 12.0, 34.0, 56.0);
+        session.add_sample(&snap);
+        assert_eq!(session.sample_count(), 1);
+        session.discard();
+        assert_eq!(session.samples.capacity(), 0);
+        assert!(session.is_empty());
+        assert!(session.is_idle());
+    }
 }
